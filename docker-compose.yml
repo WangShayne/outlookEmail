@@ -13,7 +13,7 @@ services:
       GUNICORN_WORKERS: "2"
       GUNICORN_TIMEOUT: "120"
     volumes:
-      - ./data:/app/data
+      - outlook_data:/app/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5001/login"]
@@ -21,3 +21,6 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
+
+volumes:
+  outlook_data:
