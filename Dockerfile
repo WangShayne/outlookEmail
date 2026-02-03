@@ -56,7 +56,12 @@ COPY . .
 # Create data directory and entrypoint to fix volume permissions
 RUN mkdir -p /app/data \
     && chown -R app:app /app \
-    && printf '#!/bin/sh\\nset -e\\nchown -R app:app /app/data\\nexec gosu app \"$@\"\\n' > /entrypoint.sh \
+    && printf '%s\n' \
+        '#!/bin/sh' \
+        'set -e' \
+        'chown -R app:app /app/data' \
+        'exec gosu app "$@"' \
+        > /entrypoint.sh \
     && chmod +x /entrypoint.sh
 
 EXPOSE 5001
