@@ -12,8 +12,10 @@ services:
       APP_PORT: "5001"
       GUNICORN_WORKERS: "2"
       GUNICORN_TIMEOUT: "120"
+      DATABASE_PATH: "/app/data/outlook_accounts.db"
     volumes:
-      - outlook_data:/app/data
+      - ./data:/app/data
+    user: "1000:1000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5001/login"]
@@ -21,6 +23,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-
-volumes:
-  outlook_data:
