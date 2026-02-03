@@ -15,7 +15,6 @@ services:
       DATABASE_PATH: "/app/data/outlook_accounts.db"
     volumes:
       - ./data:/app/data
-    user: "1000:1000"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:5001/login"]
