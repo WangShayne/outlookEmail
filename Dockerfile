@@ -1,35 +1,67 @@
-# 使用 Python 3.11 作为基础镜像
-FROM python:3.11-slim
+# syntax=docker/dockerfile:1
 
-# 设置工作目录
+############################
+# Builder
+############################
+FROM python:3.11-slim AS builder
+
 WORKDIR /app
 
-# 安装 curl（用于健康检查）
-RUN apt-get update && \
-    apt-get install -y --no-install-recommends curl && \
-    rm -rf /var/lib/apt/lists/*
-
-# 设置环境变量
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1
 
-# 复制依赖文件
+# Build dependencies (minimal)
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt .
 
-# 安装依赖（包括生产服务器）
-RUN pip install --upgrade pip && \
-    pip install -r requirements.txt && \
-    pip install gunicorn
+RUN pip install --upgrade pip \
+    && pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt \
+    && pip wheel --no-cache-dir --wheel-dir /wheels gunicorn
 
-# 复制应用代码
+############################
+# Runtime
+############################
+FROM python:3.11-slim AS runtime
+
+WORKDIR /app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    APP_PORT=5001 \
+    GUNICORN_WORKERS=2 \
+    GUNICORN_TIMEOUT=120
+
+# Runtime dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Create non-root user
+RUN addgroup --system app \
+    && adduser --system --ingroup app --home /app app
+
+COPY --from=builder /wheels /wheels
+COPY requirements.txt .
+
+RUN pip install --no-cache-dir /wheels/* \
+    && rm -rf /wheels
+
 COPY . .
 
-# 创建数据目录
-RUN mkdir -p /app/data
+# Create data directory with correct ownership
+RUN mkdir -p /app/data \
+    && chown -R app:app /app
 
-# 暴露端口
-EXPOSE 5000
+USER app
 
-# 启动应用（使用 Gunicorn）
-CMD ["gunicorn", "-w", "2", "-b", "0.0.0.0:5000", "--timeout", "120", "--access-logfile", "-", "web_outlook_app:app"]
+EXPOSE 5001
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -fsS http://localhost:${APP_PORT}/login || exit 1
+
+CMD ["sh", "-c", "gunicorn -w ${GUNICORN_WORKERS} -b 0.0.0.0:${APP_PORT} --timeout ${GUNICORN_TIMEOUT} --access-logfile - web_outlook_app:app"]

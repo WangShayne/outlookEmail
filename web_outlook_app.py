@@ -31,6 +31,19 @@ from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
+# 尝试加载 .env（uv venv 不会自动注入）
+try:
+    from dotenv import load_dotenv
+    from pathlib import Path
+
+    _dotenv_path = Path(__file__).resolve().parent / ".env"
+    if _dotenv_path.exists():
+        load_dotenv(_dotenv_path)
+    else:
+        load_dotenv()
+except Exception as _e:
+    print(f"Warning: failed to load .env: {_e}")
+
 # 尝试导入 Flask-WTF CSRF 保护
 try:
     from flask_wtf.csrf import CSRFProtect, generate_csrf

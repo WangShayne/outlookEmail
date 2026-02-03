@@ -8,6 +8,29 @@
     <!-- DOMPurify for XSS protection -->
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.8/dist/purify.min.js"></script>
     <style>
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+    --bg: #f0fdfa;
+    --surface: #ffffff;
+    --surface-muted: #f7fffd;
+    --border: #d4f1eb;
+    --text: #0f172a;
+    --muted: #5b6470;
+    --primary: #0d9488;
+    --primary-strong: #0f766e;
+    --secondary: #14b8a6;
+    --accent: #f97316;
+    --danger: #dc2626;
+    --shadow-lg: 0 20px 50px rgba(13, 148, 136, 0.18);
+    --shadow-sm: 0 8px 20px rgba(15, 118, 110, 0.12);
+    --radius-lg: 18px;
+    --radius-md: 12px;
+    --radius-sm: 8px;
+    --font-body: 'Fira Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --font-heading: 'Fira Code', 'Fira Sans', monospace;
+}
+
         * {
             margin: 0;
             padding: 0;
@@ -937,7 +960,7 @@
         }
 
         .solution-list li::before {
-            content: '✓';
+            content: '是';
             color: #28a745;
             font-weight: 600;
             margin-right: 10px;
@@ -1300,7 +1323,373 @@
                 display: block;
             }
         }
-    </style>
+    
+
+/* === Redesign Overrides === */
+body {
+    font-family: var(--font-body);
+    background: radial-gradient(circle at 15% 20%, rgba(20, 184, 166, 0.18), transparent 45%),
+        radial-gradient(circle at 85% 0%, rgba(13, 148, 136, 0.12), transparent 40%),
+        linear-gradient(180deg, #f8fffd 0%, #ecfdf9 100%);
+    color: var(--text);
+}
+
+body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background-image: radial-gradient(rgba(13, 148, 136, 0.08) 1px, transparent 1px);
+    background-size: 24px 24px;
+    opacity: 0.5;
+    pointer-events: none;
+    z-index: -1;
+}
+
+button,
+input,
+textarea,
+select {
+    font-family: inherit;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.28);
+}
+
+.navbar {
+    height: 64px;
+    top: 14px;
+    left: 14px;
+    right: 14px;
+    border-radius: var(--radius-lg);
+    background: rgba(255, 255, 255, 0.82);
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    backdrop-filter: blur(14px);
+}
+
+.navbar-brand {
+    font-family: var(--font-heading);
+    font-size: 18px;
+    font-weight: 600;
+    letter-spacing: 0.2px;
+}
+
+.navbar-btn,
+.refresh-btn,
+.toggle-list-btn,
+.back-btn,
+.fullscreen-btn {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background-color: #ffffff;
+    color: var(--muted);
+    padding: 8px 14px;
+    transition: all 0.2s ease;
+}
+
+.navbar-btn:hover,
+.refresh-btn:hover,
+.toggle-list-btn:hover,
+.back-btn:hover,
+.fullscreen-btn:hover {
+    border-color: rgba(13, 148, 136, 0.5);
+    color: var(--text);
+    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.15);
+    transform: translateY(-1px);
+}
+
+.btn {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background-color: #ffffff;
+    color: var(--text);
+    padding: 9px 18px;
+}
+
+.btn:hover {
+    border-color: rgba(13, 148, 136, 0.5);
+    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.15);
+}
+
+.btn-primary {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-strong);
+    border-color: var(--primary-strong);
+}
+
+.btn-secondary {
+    background-color: #ffffff;
+    color: var(--muted);
+}
+
+.btn-warning {
+    background-color: var(--accent);
+    border-color: var(--accent);
+    color: #ffffff;
+}
+
+.btn-danger {
+    background-color: var(--danger);
+    border-color: var(--danger);
+    color: #ffffff;
+}
+
+.github-star-btn {
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    box-shadow: none;
+}
+
+.github-star-btn:hover {
+    border-color: rgba(13, 148, 136, 0.4);
+    background: #ffffff;
+}
+
+.main-container {
+    margin: 92px 14px 14px;
+    height: calc(100vh - 106px);
+    border-radius: 20px;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-lg);
+    background: rgba(255, 255, 255, 0.9);
+    overflow: hidden;
+}
+
+.group-panel,
+.account-panel,
+.email-list-panel,
+.email-detail-panel {
+    background-color: var(--surface);
+}
+
+.panel-header,
+.account-panel-header,
+.email-list-header,
+.email-detail-toolbar,
+.email-detail-header {
+    background: linear-gradient(180deg, #ffffff 0%, #f4fffc 100%);
+    border-bottom: 1px solid var(--border);
+}
+
+.panel-title,
+.account-panel-title,
+.email-list-header h2 {
+    font-family: var(--font-heading);
+}
+
+.panel-action-btn {
+    border: 1px solid transparent;
+    background-color: rgba(13, 148, 136, 0.08);
+    color: var(--primary-strong);
+    font-size: 12px;
+    padding: 4px 8px;
+    border-radius: 999px;
+    transition: all 0.2s ease;
+}
+
+.panel-action-btn:hover {
+    background-color: rgba(13, 148, 136, 0.16);
+    border-color: rgba(13, 148, 136, 0.3);
+}
+
+.current-account {
+    background-color: rgba(13, 148, 136, 0.1);
+    color: var(--primary-strong);
+}
+
+.current-account strong {
+    color: var(--text);
+}
+
+.search-input,
+.form-input,
+textarea,
+select {
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm);
+    background-color: #ffffff;
+}
+
+.search-input:focus,
+.form-input:focus,
+textarea:focus,
+select:focus {
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.2);
+}
+
+.sort-control {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background-color: #f4fffc;
+}
+
+.sort-label {
+    font-size: 12px;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.sort-btn {
+    padding: 6px 12px;
+    font-size: 12px;
+    border-radius: 999px;
+    border: 1px solid var(--border);
+    background-color: #ffffff;
+    color: var(--muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.sort-btn:hover {
+    border-color: rgba(13, 148, 136, 0.5);
+    color: var(--text);
+}
+
+.sort-btn.active {
+    background-color: var(--primary);
+    border-color: var(--primary);
+    color: #ffffff;
+    box-shadow: 0 6px 16px rgba(13, 148, 136, 0.2);
+}
+
+.add-account-btn {
+    background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+    border-radius: 999px;
+    box-shadow: 0 10px 20px rgba(13, 148, 136, 0.2);
+}
+
+.add-account-btn:hover {
+    background: linear-gradient(135deg, var(--primary-strong) 0%, var(--primary) 100%);
+}
+
+.group-item,
+.account-item,
+.email-item {
+    border-left-color: transparent;
+}
+
+.group-item:hover,
+.account-item:hover,
+.email-item:hover {
+    background-color: rgba(13, 148, 136, 0.08);
+}
+
+.group-item.active,
+.account-item.active,
+.email-item.active {
+    background-color: rgba(13, 148, 136, 0.14);
+    border-left-color: var(--primary);
+}
+
+.tag-badge {
+    border-radius: 999px;
+    font-weight: 600;
+}
+
+.folder-tabs {
+    background-color: rgba(13, 148, 136, 0.12);
+}
+
+.folder-tab {
+    color: var(--muted);
+}
+
+.folder-tab.active {
+    background-color: var(--primary);
+    color: #ffffff;
+}
+
+.method-tag {
+    background-color: rgba(13, 148, 136, 0.1);
+    color: var(--primary-strong);
+    border-radius: 999px;
+}
+
+.email-detail-subject {
+    font-family: var(--font-heading);
+}
+
+.email-detail-body {
+    background-color: #ffffff;
+}
+
+.batch-btn.danger {
+    background-color: var(--danger);
+}
+
+.batch-btn.danger:hover {
+    background-color: #b91c1c;
+}
+
+.modal-content {
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-lg);
+}
+
+.empty-state-icon {
+    width: 64px;
+    height: 64px;
+    margin: 0 auto 12px;
+    border-radius: 20px;
+    background: rgba(13, 148, 136, 0.12);
+    display: grid;
+    place-items: center;
+    font-size: 0;
+}
+
+.empty-state-icon::before {
+    content: '';
+    width: 28px;
+    height: 28px;
+    background-color: var(--primary);
+    -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 2-8 5-8-5h16zm0 12H4V8l8 5 8-5v10z'/></svg>") center/contain no-repeat;
+    mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path fill='black' d='M20 4H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2zm0 2-8 5-8-5h16zm0 12H4V8l8 5 8-5v10z'/></svg>") center/contain no-repeat;
+}
+
+@media (max-width: 768px) {
+    .navbar {
+        height: 60px;
+        top: 10px;
+        left: 10px;
+        right: 10px;
+    }
+
+    .main-container {
+        margin: 84px 10px 10px;
+        height: calc(100vh - 94px);
+    }
+
+    .group-panel,
+    .account-panel {
+        top: 84px;
+        height: calc(100vh - 94px);
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * {
+        animation: none !important;
+        transition: none !important;
+        scroll-behavior: auto !important;
+    }
+}
+</style>
 </head>
 
 <body>
@@ -1329,7 +1718,7 @@
         <div class="navbar-actions">
             <button class="navbar-btn" onclick="showRefreshModal()">全量刷新Token</button>
             <button class="navbar-btn" onclick="showExportModal()">导出邮箱</button>
-            <button class="navbar-btn" onclick="showSettingsModal()">⚙️ 设置</button>
+            <button class="navbar-btn" onclick="showSettingsModal()">设置</button>
             <button class="navbar-btn" onclick="logout()" style="color: #dc3545;">退出登录</button>
         </div>
     </nav>
@@ -1356,7 +1745,7 @@
                 </div>
                 <div style="margin-left: auto;">
                     <button class="panel-action-btn" onclick="showTagManagementModal()" title="管理标签">
-                        🏷️
+                        标签
                     </button>
                     <button class="panel-action-btn" onclick="showAddAccountModal()" title="导入账号">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
@@ -1369,17 +1758,14 @@
             <div class="search-container">
                 <input type="text" id="globalSearch" class="search-input" placeholder="搜索邮箱地址..." autocomplete="off">
             </div>
-            <div class="sort-control"
-                style="padding: 8px 16px; border-bottom: 1px solid #e5e5e5; display: flex; align-items: center; gap: 8px; background-color: #fafafa;">
-                <label style="font-size: 12px; color: #666; font-weight: 500;">排序：</label>
+            <div class="sort-control">
+                <label class="sort-label">排序：</label>
                 <div style="display: flex; gap: 4px;">
-                    <button class="sort-btn active" data-sort="refresh_time" onclick="sortAccounts('refresh_time')"
-                        style="padding: 4px 10px; font-size: 12px; background-color: #1a1a1a; border: 1px solid #1a1a1a; border-radius: 4px; color: #ffffff; cursor: pointer; transition: all 0.15s;">
-                        🕐 刷新时间
+                    <button class="sort-btn active" data-sort="refresh_time" onclick="sortAccounts('refresh_time')">
+                        刷新时间
                     </button>
-                    <button class="sort-btn" data-sort="email" onclick="sortAccounts('email')"
-                        style="padding: 4px 10px; font-size: 12px; background-color: #ffffff; border: 1px solid #e5e5e5; border-radius: 4px; color: #666; cursor: pointer; transition: all 0.15s;">
-                        📧 邮箱名
+                    <button class="sort-btn" data-sort="email" onclick="sortAccounts('email')">
+                        邮箱名
                     </button>
                     <!-- Tag Filter moved to new row -->
                 </div>
@@ -1391,7 +1777,7 @@
             </div>
             <div class="account-list" id="accountList">
                 <div class="empty-state">
-                    <div class="empty-state-icon">📁</div>
+                    <div class="empty-state-icon">分组</div>
                     <div class="empty-state-text">请从左侧选择一个分组</div>
                 </div>
             </div>
@@ -1417,10 +1803,10 @@
                         style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
                         <div class="folder-tabs" id="folderTabs" style="display: none;">
                             <button class="folder-tab active" data-folder="inbox" onclick="switchFolder('inbox')">
-                                📨 收件箱
+                                收件箱 收件箱
                             </button>
                             <button class="folder-tab" data-folder="junkemail" onclick="switchFolder('junkemail')">
-                                ⚠️ 垃圾邮件
+                                垃圾邮件
                             </button>
                         </div>
                         <button class="refresh-btn" onclick="refreshEmails()">获取邮件</button>
@@ -1435,7 +1821,7 @@
                 </div>
                 <div class="email-list" id="emailList">
                     <div class="empty-state">
-                        <div class="empty-state-icon">📬</div>
+                        <div class="empty-state-icon">邮件</div>
                         <div class="empty-state-text">请从左侧选择一个邮箱账号</div>
                     </div>
                 </div>
@@ -1445,7 +1831,7 @@
                     <span id="emailSelectedCount" style="font-size: 12px; color: #666;">已选 0 项</span>
                     <div style="flex: 1;"></div>
                     <button class="batch-btn danger" onclick="confirmBatchDeleteEmails()">
-                        🗑️ 删除
+                        删除 删除
                     </button>
                 </div>
             </div>
@@ -1457,7 +1843,7 @@
                     <button class="toggle-list-btn" onclick="toggleEmailList()">
                         <span id="toggleListText">隐藏列表</span>
                     </button>
-                    <button class="fullscreen-btn" onclick="openFullscreenEmail()">🔍 全屏查看</button>
+                    <button class="fullscreen-btn" onclick="openFullscreenEmail()">全屏 全屏查看</button>
                     <label
                         style="display: flex; align-items: center; gap: 6px; font-size: 13px; margin-left: 12px; cursor: pointer;">
                         <input type="checkbox" id="trustEmailCheckbox" onchange="toggleTrustMode(this)">
@@ -1466,12 +1852,12 @@
                     <div style="flex: 1;"></div>
                     <button class="batch-btn danger" onclick="confirmDeleteCurrentEmail()"
                         style="padding: 4px 8px; font-size: 12px;">
-                        🗑️ 删除
+                        删除 删除
                     </button>
                 </div>
                 <div id="emailDetail">
                     <div class="empty-state">
-                        <div class="empty-state-icon">📄</div>
+                        <div class="empty-state-icon">详情</div>
                         <div class="empty-state-text">选择一封邮件查看详情</div>
                     </div>
                 </div>
@@ -1643,7 +2029,7 @@
     <div class="modal" id="exportVerifyModal" onclick="if(event.target === this) hideExportVerifyModal()">
         <div class="modal-content" style="width: 400px;">
             <div class="modal-header">
-                <h3>🔐 安全验证</h3>
+                <h3>安全验证</h3>
                 <button class="modal-close" onclick="hideExportVerifyModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1664,7 +2050,7 @@
     <div class="modal" id="settingsModal" onclick="if(event.target === this) hideSettingsModal()">
         <div class="modal-content" style="width: 480px;">
             <div class="modal-header">
-                <h3>⚙️ 系统设置</h3>
+                <h3>系统设置</h3>
                 <button class="modal-close" onclick="hideSettingsModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1681,7 +2067,7 @@
                 </div>
 
                 <div style="border-top: 1px solid #e5e5e5; margin: 24px 0; padding-top: 24px;">
-                    <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">🔄 Token 刷新设置</h4>
+                    <h4 style="font-size: 15px; font-weight: 600; margin-bottom: 16px;">Token 刷新设置</h4>
 
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
@@ -1779,7 +2165,7 @@
     <div class="modal" id="refreshModal" onclick="if(event.target === this) hideRefreshModal()">
         <div class="modal-content" style="width: 800px; max-width: 90vw;">
             <div class="modal-header">
-                <h3>🔄 Token 刷新管理</h3>
+                <h3>Token 刷新管理</h3>
                 <button class="modal-close" onclick="hideRefreshModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1788,7 +2174,7 @@
                     style="background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%); padding: 20px; border-radius: 10px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
                     <div
                         style="font-size: 15px; font-weight: 600; margin-bottom: 16px; color: #333; display: flex; align-items: center; gap: 8px;">
-                        <span>📊</span>
+                        <span>统计</span>
                         <span>刷新统计</span>
                     </div>
                     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 12px;">
@@ -1796,7 +2182,7 @@
                             style="background-color: white; padding: 14px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                             <div
                                 style="font-size: 12px; color: #666; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-                                <span>🕐</span>
+                                <span>时间</span>
                                 <span>上次全量刷新</span>
                             </div>
                             <div style="font-size: 13px; font-weight: 600; color: #333;" id="lastRefreshTime">-</div>
@@ -1805,7 +2191,7 @@
                             style="background-color: white; padding: 14px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                             <div
                                 style="font-size: 12px; color: #666; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-                                <span>📝</span>
+                                <span>备注</span>
                                 <span>总邮箱数</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #333;" id="totalRefreshCount">0</div>
@@ -1814,7 +2200,7 @@
                             style="background-color: white; padding: 14px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                             <div
                                 style="font-size: 12px; color: #666; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-                                <span>✅</span>
+                                <span>成功</span>
                                 <span>成功邮箱</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #28a745;" id="successRefreshCount">0
@@ -1824,7 +2210,7 @@
                             style="background-color: white; padding: 14px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.08);">
                             <div
                                 style="font-size: 12px; color: #666; margin-bottom: 6px; display: flex; align-items: center; gap: 4px;">
-                                <span>❌</span>
+                                <span>失败</span>
                                 <span>失败邮箱</span>
                             </div>
                             <div style="font-size: 18px; font-weight: 700; color: #dc3545;" id="failedRefreshCount">0
@@ -1837,16 +2223,16 @@
                 <div
                     style="display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 8px; margin-bottom: 16px;">
                     <button class="btn btn-primary" onclick="refreshAllAccounts()" id="refreshAllBtn">
-                        🔄 全量刷新
+                        全量刷新
                     </button>
                     <button class="btn btn-warning" onclick="retryFailedAccounts()" id="retryFailedBtn">
-                        🔁 重试失败
+                        重试失败
                     </button>
                     <button class="btn btn-secondary" onclick="loadFailedLogs()">
-                        ❌ 失败邮箱
+                        失败邮箱
                     </button>
                     <button class="btn btn-secondary" onclick="loadRefreshLogs()">
-                        📋 刷新历史
+                        刷新历史
                     </button>
                 </div>
 
@@ -1875,7 +2261,7 @@
                     <div
                         style="font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
                         <span style="display: flex; align-items: center; gap: 6px;">
-                            <span>📋</span>
+                            <span>复制</span>
                             <span>全量刷新历史</span>
                         </span>
                         <button class="btn btn-sm btn-secondary" onclick="hideRefreshLogs()">隐藏</button>
@@ -1896,7 +2282,7 @@
     <div class="modal" id="tagManagementModal" onclick="if(event.target === this) hideTagManagementModal()">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>🏷️ 标签管理</h3>
+                <h3>标签 标签管理</h3>
                 <button class="modal-close" onclick="hideTagManagementModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -1947,7 +2333,7 @@
     <div class="modal" id="errorDetailModal" onclick="if(event.target === this) hideErrorDetailModal()">
         <div class="modal-content" style="width: 700px; max-width: 90vw;">
             <div class="modal-header" style="background-color: #fef0f0; border-bottom-color: #dc3545;">
-                <h3 style="color: #dc3545;">❌ 错误详情</h3>
+                <h3 style="color: #dc3545;">失败 错误详情</h3>
                 <button class="modal-close" onclick="hideErrorDetailModal()">&times;</button>
             </div>
             <div class="modal-body" style="padding-top: 16px;">
@@ -1963,7 +2349,7 @@
                             显示堆栈/细节
                         </button>
                         <button class="btn btn-sm btn-secondary" onclick="copyErrorDetails()" style="margin-left: 8px;">
-                            📋 复制全部
+                            复制全部
                         </button>
                     </div>
 
@@ -1994,7 +2380,7 @@
     <div class="modal" id="refreshErrorModal" onclick="if(event.target === this) hideRefreshErrorModal()">
         <div class="modal-content">
             <div class="modal-header">
-                <h3>⚠️ 刷新失败</h3>
+                <h3>刷新失败</h3>
                 <button class="modal-close" onclick="hideRefreshErrorModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -2004,7 +2390,7 @@
                 </div>
 
                 <div class="form-group">
-                    <label class="form-label">💡 解决建议</label>
+                    <label class="form-label">解决建议</label>
                     <ul class="solution-list">
                         <li>检查账号信息中的 <strong>Client ID</strong> 和 <strong>Refresh Token</strong> 是否填写正确且没有多余的空格。</li>
                         <li>尝试使用"获取 Refresh Token"功能，重新为该账号生成一个新的 Token。</li>
@@ -2023,7 +2409,7 @@
     <div class="modal" id="getRefreshTokenModal" onclick="if(event.target === this) hideGetRefreshTokenModal()">
         <div class="modal-content" style="width: 600px;">
             <div class="modal-header">
-                <h3>🔑 获取 Refresh Token</h3>
+                <h3>获取 Refresh Token</h3>
                 <button class="modal-close" onclick="hideGetRefreshTokenModal()">&times;</button>
             </div>
             <div class="modal-body">
@@ -2032,9 +2418,9 @@
                     <div style="display: flex; gap: 8px; margin-bottom: 8px;">
                         <input type="text" class="form-input" id="authUrlInput" readonly
                             style="flex: 1; font-size: 12px; font-family: monospace;">
-                        <button class="btn btn-secondary" onclick="copyAuthUrl()" style="white-space: nowrap;">📋
+                        <button class="btn btn-secondary" onclick="copyAuthUrl()" style="white-space: nowrap;">复制
                             复制</button>
-                        <button class="btn btn-primary" onclick="openAuthUrl()" style="white-space: nowrap;">🔗
+                        <button class="btn btn-primary" onclick="openAuthUrl()" style="white-space: nowrap;">打开
                             打开</button>
                     </div>
                     <div class="form-hint">点击"打开"按钮在浏览器中授权，或点击"复制"后手动粘贴到浏览器</div>
@@ -2049,7 +2435,7 @@
                 </div>
 
                 <div class="form-group" id="refreshTokenResult" style="display: none;">
-                    <label class="form-label">✅ 账号信息（已获取成功）</label>
+                    <label class="form-label">成功 账号信息（已获取成功）</label>
                     <textarea class="form-textarea" id="refreshTokenOutput" readonly
                         style="height: 100px; font-size: 12px; font-family: monospace; background-color: #f0f9ff; border-color: #0078d4;"></textarea>
                     <div class="form-hint" style="color: #0078d4;">
@@ -2281,7 +2667,7 @@
                 // 清空邮件列表，显示提示
                 document.getElementById('emailList').innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📬</div>
+                        <div class="empty-state-icon">邮件</div>
                         <div class="empty-state-text">点击"获取邮件"按钮获取${folder === 'inbox' ? '收件箱' : '垃圾邮件'}</div>
                     </div>
                 `;
@@ -2540,13 +2926,13 @@ ${details}
                          onclick="selectGroup(${group.id})">
                         <div class="group-row-1">
                             <div class="group-color" style="background-color: ${group.color || '#666'}"></div>
-                            <span class="group-name">${escapeHtml(group.name)}${isTempGroup ? ' ⚡' : ''}</span>
+                            <span class="group-name">${escapeHtml(group.name)}${isTempGroup ? ' 高效' : ''}</span>
                         </div>
                         <div class="group-row-2">
                             <span class="group-count">${group.account_count || 0} 个邮箱</span>
                             <div class="group-actions">
-                                ${!isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); editGroup(${group.id})" title="编辑">✏️</button>` : ''}
-                                ${!isDefault && !isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); deleteGroup(${group.id})" title="删除">🗑️</button>` : ''}
+                                ${!isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); editGroup(${group.id})" title="编辑">编辑</button>` : ''}
+                                ${!isDefault && !isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); deleteGroup(${group.id})" title="删除">删除</button>` : ''}
                             </div>
                         </div>
                     </div>
@@ -2605,7 +2991,7 @@ ${details}
                 `;
             } else {
                 footer.innerHTML = `
-                    <button class="add-account-btn" onclick="showGetRefreshTokenModal()" style="background-color: #0078d4; margin-bottom: 8px;">🔑 获取 Refresh Token</button>
+                    <button class="add-account-btn" onclick="showGetRefreshTokenModal()" style="background-color: #0078d4; margin-bottom: 8px;">获取 Refresh Token</button>
                     <button class="add-account-btn" onclick="showAddAccountModal()">+ 导入邮箱</button>
                 `;
             }
@@ -2644,7 +3030,7 @@ ${details}
             if (accounts.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📭</div>
+                        <div class="empty-state-icon">空</div>
                         <div class="empty-state-text">该分组暂无邮箱</div>
                     </div>
                 `;
@@ -2663,7 +3049,7 @@ ${details}
                                 <span class="account-number">${index + 1}.</span> ${escapeHtml(acc.email)}
                                 ${acc.status === 'inactive' ? '<span class="account-status-tag">已停用</span>' : ''}
                             </div>
-                            ${acc.remark && acc.remark.trim() ? `<div class="account-remark" title="${escapeHtml(acc.remark)}">📝 ${escapeHtml(acc.remark)}</div>` : ''}
+                            ${acc.remark && acc.remark.trim() ? `<div class="account-remark" title="${escapeHtml(acc.remark)}">备注 ${escapeHtml(acc.remark)}</div>` : ''}
                             
                             <div class="account-tags">
                                 ${(acc.tags || []).map(tag => `
@@ -2674,7 +3060,7 @@ ${details}
                             </div>
                             
                             <div class="account-refresh-time" style="font-size: 11px; color: ${acc.last_refresh_status === 'failed' ? '#dc3545' : '#999'}; margin-top: 4px; padding-left: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <span>🕐 ${formatRelativeTime(acc.last_refresh_at)}</span>
+                                <span>上次刷新 ${formatRelativeTime(acc.last_refresh_at)}</span>
                                 ${acc.last_refresh_status === 'failed' ? '<button class="account-action-btn" onclick="event.stopPropagation(); showRefreshError(' + acc.id + ', \'' + escapeJs(acc.last_refresh_error || '未知错误') + '\', \'' + escapeJs(acc.email) + '\')" style="padding: 2px 6px; font-size: 10px; background-color: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">查看错误</button>' : ''}
                             </div>
                         </div>
@@ -2985,7 +3371,7 @@ ${details}
             if (emails.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">⚡</div>
+                        <div class="empty-state-icon">高效</div>
                         <div class="empty-state-text">暂无临时邮箱<br>点击下方按钮生成</div>
                     </div>
                 `;
@@ -3013,7 +3399,7 @@ ${details}
             const btn = document.querySelector('.account-panel-footer .add-account-btn');
             const originalText = btn.textContent;
             btn.disabled = true;
-            btn.textContent = '⏳ 生成中...';
+            btn.textContent = '处理中 生成中...';
             btn.style.opacity = '0.7';
             btn.style.cursor = 'not-allowed';
 
@@ -3069,14 +3455,14 @@ ${details}
 
             document.getElementById('emailList').innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">📬</div>
+                    <div class="empty-state-icon">邮件</div>
                     <div class="empty-state-text">点击"获取邮件"按钮获取邮件</div>
                 </div>
             `;
 
             document.getElementById('emailDetail').innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">📄</div>
+                    <div class="empty-state-icon">详情</div>
                     <div class="empty-state-text">选择一封邮件查看详情</div>
                 </div>
             `;
@@ -3107,13 +3493,13 @@ ${details}
                         document.getElementById('emailCount').textContent = '(0)';
                         document.getElementById('emailList').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📭</div>
+                                <div class="empty-state-icon">空</div>
                                 <div class="empty-state-text">收件箱为空</div>
                             </div>
                         `;
                         document.getElementById('emailDetail').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📄</div>
+                                <div class="empty-state-icon">详情</div>
                                 <div class="empty-state-text">选择一封邮件查看详情</div>
                             </div>
                         `;
@@ -3149,13 +3535,13 @@ ${details}
                         document.getElementById('currentAccount').classList.remove('show');
                         document.getElementById('emailList').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📬</div>
+                                <div class="empty-state-icon">邮件</div>
                                 <div class="empty-state-text">请从左侧选择一个邮箱账号</div>
                             </div>
                         `;
                         document.getElementById('emailDetail').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📄</div>
+                                <div class="empty-state-icon">详情</div>
                                 <div class="empty-state-text">选择一封邮件查看详情</div>
                             </div>
                         `;
@@ -3204,7 +3590,7 @@ ${details}
                     handleApiError(data, '加载临时邮件失败');
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
+                            <div class="empty-state-icon">警告</div>
                             <div class="empty-state-text">${data.error && data.error.message ? data.error.message : '加载失败'}</div>
                         </div>
                     `;
@@ -3212,7 +3598,7 @@ ${details}
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">⚠️</div>
+                        <div class="empty-state-icon">警告</div>
                         <div class="empty-state-text">网络错误，请重试</div>
                     </div>
                 `;
@@ -3246,7 +3632,7 @@ ${details}
                     handleApiError(data, '加载邮件详情失败');
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
+                            <div class="empty-state-icon">警告</div>
                             <div class="empty-state-text">${data.error && data.error.message ? data.error.message : '加载失败'}</div>
                         </div>
                     `;
@@ -3254,7 +3640,7 @@ ${details}
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">⚠️</div>
+                        <div class="empty-state-icon">警告</div>
                         <div class="empty-state-text">网络错误，请重试</div>
                     </div>
                 `;
@@ -3310,7 +3696,7 @@ ${details}
             } else {
                 document.getElementById('emailList').innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📬</div>
+                        <div class="empty-state-icon">邮件</div>
                         <div class="empty-state-text">点击"获取邮件"按钮获取邮件</div>
                     </div>
                 `;
@@ -3321,7 +3707,7 @@ ${details}
 
             document.getElementById('emailDetail').innerHTML = `
                 <div class="empty-state">
-                    <div class="empty-state-icon">📄</div>
+                    <div class="empty-state-icon">详情</div>
                     <div class="empty-state-text">选择一封邮件查看详情</div>
                 </div>
             `;
@@ -3493,13 +3879,13 @@ ${details}
                         document.getElementById('currentAccount').classList.remove('show');
                         document.getElementById('emailList').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📬</div>
+                                <div class="empty-state-icon">邮件</div>
                                 <div class="empty-state-text">请从左侧选择一个邮箱账号</div>
                             </div>
                         `;
                         document.getElementById('emailDetail').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📄</div>
+                                <div class="empty-state-icon">详情</div>
                                 <div class="empty-state-text">选择一封邮件查看详情</div>
                             </div>
                         `;
@@ -3571,13 +3957,13 @@ ${details}
                         document.getElementById('currentAccount').classList.remove('show');
                         document.getElementById('emailList').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📬</div>
+                                <div class="empty-state-icon">邮件</div>
                                 <div class="empty-state-text">请从左侧选择一个邮箱账号</div>
                             </div>
                         `;
                         document.getElementById('emailDetail').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">📄</div>
+                                <div class="empty-state-icon">详情</div>
                                 <div class="empty-state-text">选择一封邮件查看详情</div>
                             </div>
                         `;
@@ -3828,7 +4214,7 @@ ${details}
                     handleApiError(data, '获取邮件失败');
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
+                            <div class="empty-state-icon">警告</div>
                             <div class="empty-state-text">${data.error && data.error.message ? data.error.message : '加载失败'}</div>
                         </div>
                     `;
@@ -3836,7 +4222,7 @@ ${details}
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">⚠️</div>
+                        <div class="empty-state-icon">警告</div>
                         <div class="empty-state-text">网络错误，请重试</div>
                     </div>
                 `;
@@ -3862,7 +4248,7 @@ ${details}
             if (emails.length === 0) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">📭</div>
+                        <div class="empty-state-icon">空</div>
                         <div class="empty-state-text">收件箱为空</div>
                     </div>
                 `;
@@ -3967,7 +4353,7 @@ ${details}
                     if (currentEmailDetail && deletedIds.has(currentEmailDetail.id)) {
                         document.getElementById('emailDetail').innerHTML = `
                             <div class="empty-state">
-                                <div class="empty-state-icon">🗑️</div>
+                                <div class="empty-state-icon">删除</div>
                                 <div class="empty-state-text">邮件已删除</div>
                             </div>
                         `;
@@ -4019,7 +4405,7 @@ ${details}
                     handleApiError(data, '加载邮件详情失败');
                     container.innerHTML = `
                         <div class="empty-state">
-                            <div class="empty-state-icon">⚠️</div>
+                            <div class="empty-state-icon">警告</div>
                             <div class="empty-state-text">${data.error && data.error.message ? data.error.message : '加载失败'}</div>
                         </div>
                     `;
@@ -4027,7 +4413,7 @@ ${details}
             } catch (error) {
                 container.innerHTML = `
                     <div class="empty-state">
-                        <div class="empty-state-icon">⚠️</div>
+                        <div class="empty-state-icon">警告</div>
                         <div class="empty-state-text">网络错误，请重试</div>
                     </div>
                 `;
@@ -4261,7 +4647,7 @@ ${details}
         // 切换信任模式
         function toggleTrustMode(checkbox) {
             if (checkbox.checked) {
-                if (confirm('⚠️ 警告：启用信任模式将直接显示邮件原始内容，不进行任何安全过滤。\n\n这可能包含恶意脚本或不安全的内容。您确定要继续吗？')) {
+                if (confirm('警告：启用信任模式将直接显示邮件原始内容，不进行任何安全过滤。\n\n这可能包含恶意脚本或不安全的内容。您确定要继续吗？')) {
                     isTrustedMode = true;
                     if (currentEmailDetail) {
                         renderEmailDetail(currentEmailDetail);
@@ -4499,7 +4885,7 @@ ${details}
 
             const btn = document.getElementById('exchangeTokenBtn');
             btn.disabled = true;
-            btn.textContent = '⏳ 换取中...';
+            btn.textContent = '处理中 换取中...';
 
             try {
                 const response = await fetch('/api/oauth/exchange-token', {
@@ -4522,7 +4908,7 @@ ${details}
                     document.getElementById('refreshTokenOutput').value = importFormat;
                     document.getElementById('refreshTokenResult').style.display = 'block';
 
-                    showToast('✅ Refresh Token 获取成功！', 'success');
+                    showToast('成功 Refresh Token 获取成功！', 'success');
 
                     // 重置按钮状态（不隐藏，允许重复使用）
                     btn.disabled = false;
@@ -4621,21 +5007,21 @@ ${details}
                     const nextRun = new Date(data.next_run).toLocaleString('zh-CN');
                     resultEl.innerHTML = `
                         <div style="color: #28a745;">
-                            ✓ 表达式有效<br>
+                            是 表达式有效<br>
                             下次执行: ${nextRun}
                         </div>
                     `;
                 } else {
                     resultEl.innerHTML = `
                         <div style="color: #dc3545;">
-                            ✗ ${data.error && data.error.message ? data.error.message : (data.error || '表达式无效')}
+                            否 ${data.error && data.error.message ? data.error.message : (data.error || '表达式无效')}
                         </div>
                     `;
                 }
             } catch (error) {
                 resultEl.innerHTML = `
                     <div style="color: #dc3545;">
-                        ✗ 验证失败: ${error.message}
+                        否 验证失败: ${error.message}
                     </div>
                 `;
             }
@@ -4786,13 +5172,13 @@ ${details}
             const refreshAllBtn = document.getElementById('refreshAllBtn');
             if (refreshAllBtn) {
                 refreshAllBtn.disabled = false;
-                refreshAllBtn.textContent = '🔄 全量刷新';
+                refreshAllBtn.textContent = '全量刷新';
             }
 
             const retryFailedBtn = document.getElementById('retryFailedBtn');
             if (retryFailedBtn) {
                 retryFailedBtn.disabled = false;
-                retryFailedBtn.textContent = '🔁 重试失败';
+                retryFailedBtn.textContent = '重试失败';
             }
         }
 
@@ -4880,7 +5266,7 @@ ${details}
                             eventSource.close();
                             progress.style.display = 'none';
                             btn.disabled = false;
-                            btn.textContent = '🔄 全量刷新';
+                            btn.textContent = '全量刷新';
 
                             // 直接更新统计数据，使用本地时间
                             const now = new Date();
@@ -4913,14 +5299,14 @@ ${details}
                     eventSource.close();
                     progress.style.display = 'none';
                     btn.disabled = false;
-                    btn.textContent = '🔄 全量刷新';
+                    btn.textContent = '全量刷新';
                     showToast('刷新过程中出现错误', 'error');
                 };
 
             } catch (error) {
                 progress.style.display = 'none';
                 btn.disabled = false;
-                btn.textContent = '🔄 全量刷新';
+                btn.textContent = '全量刷新';
                 showToast('刷新请求失败', 'error');
             }
         }
@@ -4946,7 +5332,7 @@ ${details}
 
                 progress.style.display = 'none';
                 btn.disabled = false;
-                btn.textContent = '🔁 重试失败';
+                btn.textContent = '重试失败';
 
                 if (data.success) {
                     if (data.total === 0) {
@@ -4971,7 +5357,7 @@ ${details}
             } catch (error) {
                 progress.style.display = 'none';
                 btn.disabled = false;
-                btn.textContent = '🔁 重试失败';
+                btn.textContent = '重试失败';
                 showToast('重试请求失败', 'error');
             }
         }
