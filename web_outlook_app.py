@@ -3,8 +3,7 @@
 """
 Outlook 邮件 Web 应用
 基于 Flask 的 Web 界面，支持多邮箱管理和邮件查看
-使用 SQLite 数据库存储邮箱信息，支持分组管理
-支持 GPTMail 临时邮箱服务
+使用 SQLite 数据库存储邮箱信息
 """
 
 import email
@@ -106,12 +105,6 @@ IMAP_PORT = 993
 # 数据库文件
 DATABASE = os.getenv("DATABASE_PATH", "data/outlook_accounts.db")
 
-# GPTMail API 配置
-GPTMAIL_BASE_URL = os.getenv("GPTMAIL_BASE_URL", "https://mail.chatgpt.org.uk")
-GPTMAIL_API_KEY = os.getenv("GPTMAIL_API_KEY", "gpt-test")  # 测试 API Key，可以修改为正式 Key
-
-# 临时邮箱分组 ID（系统保留）
-TEMP_EMAIL_GROUP_ID = -1
 
 # OAuth 配置
 OAUTH_CLIENT_ID = os.getenv("OAUTH_CLIENT_ID", "24d9a0ed-8787-4584-883c-2fd79308940a")
@@ -449,35 +442,6 @@ def init_db():
         )
     ''')
     
-    # 创建临时邮箱表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS temp_emails (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            email TEXT UNIQUE NOT NULL,
-            status TEXT DEFAULT 'active',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # 创建临时邮件表（存储从 GPTMail 获取的邮件）
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS temp_email_messages (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            message_id TEXT UNIQUE NOT NULL,
-            email_address TEXT NOT NULL,
-            from_address TEXT,
-            subject TEXT,
-            content TEXT,
-            html_content TEXT,
-            has_html INTEGER DEFAULT 0,
-            timestamp INTEGER,
-            raw_content TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (email_address) REFERENCES temp_emails (email)
-        )
-    ''')
-
     # 创建账号刷新记录表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS account_refresh_logs (
@@ -601,12 +565,6 @@ def init_db():
         VALUES ('默认分组', '未分组的邮箱', '#666666')
     ''')
     
-    # 创建临时邮箱分组（系统分组）
-    cursor.execute('''
-        INSERT OR IGNORE INTO groups (name, description, color, is_system)
-        VALUES ('临时邮箱', 'GPTMail 临时邮箱服务', '#00bcf2', 1)
-    ''')
-    
     # 初始化默认设置
     # 检查是否已有密码设置
     cursor.execute("SELECT value FROM settings WHERE key = 'login_password'")
@@ -627,11 +585,6 @@ def init_db():
             INSERT INTO settings (key, value)
             VALUES ('login_password', ?)
         ''', (hashed_password,))
-
-    cursor.execute('''
-        INSERT OR IGNORE INTO settings (key, value)
-        VALUES ('gptmail_api_key', ?)
-    ''', (GPTMAIL_API_KEY,))
 
     # 初始化刷新配置
     cursor.execute('''
@@ -747,7 +700,6 @@ def init_app():
     print("=" * 60)
     print("Outlook 邮件 Web 应用已初始化")
     print(f"数据库文件: {DATABASE}")
-    print(f"GPTMail API: {GPTMAIL_BASE_URL}")
     print("=" * 60)
 
 
@@ -793,132 +745,16 @@ def get_login_password() -> str:
     return password if password else LOGIN_PASSWORD
 
 
-def get_gptmail_api_key() -> str:
-    """获取 GPTMail API Key（优先从数据库读取）"""
-    api_key = get_setting('gptmail_api_key')
-    return api_key if api_key else GPTMAIL_API_KEY
-
-
-# ==================== 分组操作 ====================
-
-def load_groups() -> List[Dict]:
-    """加载所有分组（临时邮箱分组排在最前面）"""
-    db = get_db()
-    # 使用 CASE 语句让临时邮箱分组排在最前面
-    cursor = db.execute('''
-        SELECT * FROM groups
-        ORDER BY
-            CASE WHEN name = '临时邮箱' THEN 0 ELSE 1 END,
-            id
-    ''')
-    rows = cursor.fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_group_by_id(group_id: int) -> Optional[Dict]:
-    """根据 ID 获取分组"""
-    db = get_db()
-    cursor = db.execute('SELECT * FROM groups WHERE id = ?', (group_id,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
-
-
-def add_group(name: str, description: str = '', color: str = '#1a1a1a') -> Optional[int]:
-    """添加分组"""
-    db = get_db()
-    try:
-        cursor = db.execute('''
-            INSERT INTO groups (name, description, color)
-            VALUES (?, ?, ?)
-        ''', (name, description, color))
-        db.commit()
-        return cursor.lastrowid
-    except sqlite3.IntegrityError:
-        return None
-
-
-def update_group(group_id: int, name: str, description: str, color: str) -> bool:
-    """更新分组"""
-    db = get_db()
-    try:
-        db.execute('''
-            UPDATE groups SET name = ?, description = ?, color = ?
-            WHERE id = ?
-        ''', (name, description, color, group_id))
-        db.commit()
-        return True
-    except Exception:
-        return False
-
-
-def delete_group(group_id: int) -> bool:
-    """删除分组（将该分组下的邮箱移到默认分组）"""
-    db = get_db()
-    try:
-        # 将该分组下的邮箱移到默认分组（id=1）
-        db.execute('UPDATE accounts SET group_id = 1 WHERE group_id = ?', (group_id,))
-        # 删除分组（不能删除默认分组）
-        if group_id != 1:
-            db.execute('DELETE FROM groups WHERE id = ?', (group_id,))
-        db.commit()
-        return True
-    except Exception:
-        return False
-
-
-def get_group_account_count(group_id: int) -> int:
-    """获取分组下的邮箱数量"""
-    db = get_db()
-    cursor = db.execute('SELECT COUNT(*) as count FROM accounts WHERE group_id = ?', (group_id,))
-    row = cursor.fetchone()
-    return row['count'] if row else 0
-
-
-def get_group_account_status_counts(group_id: int) -> Dict[str, int]:
-    """获取分组下邮箱的最近刷新状态统计"""
-    db = get_db()
-    row = db.execute('''
-        SELECT
-            SUM(CASE WHEN l.status = 'success' THEN 1 ELSE 0 END) as success_count,
-            SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END) as failed_count
-        FROM accounts a
-        LEFT JOIN (
-            SELECT l1.account_id, l1.status
-            FROM account_refresh_logs l1
-            INNER JOIN (
-                SELECT account_id, MAX(created_at) as max_created
-                FROM account_refresh_logs
-                GROUP BY account_id
-            ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
-        ) l ON a.id = l.account_id
-        WHERE a.group_id = ?
-    ''', (group_id,)).fetchone()
-    return {
-        'success_count': row['success_count'] or 0,
-        'failed_count': row['failed_count'] or 0
-    }
-
-
 # ==================== 邮箱账号操作 ====================
 
 def load_accounts(group_id: int = None) -> List[Dict]:
     """从数据库加载邮箱账号"""
     db = get_db()
-    if group_id:
-        cursor = db.execute('''
-            SELECT a.*, g.name as group_name, g.color as group_color
-            FROM accounts a
-            LEFT JOIN groups g ON a.group_id = g.id
-            WHERE a.group_id = ?
-            ORDER BY a.created_at DESC
-        ''', (group_id,))
-    else:
-        cursor = db.execute('''
-            SELECT a.*, g.name as group_name, g.color as group_color
-            FROM accounts a
-            LEFT JOIN groups g ON a.group_id = g.id
-            ORDER BY a.created_at DESC
-        ''')
+    cursor = db.execute('''
+        SELECT a.*
+        FROM accounts a
+        ORDER BY a.created_at DESC
+    ''')
     rows = cursor.fetchall()
     accounts = []
     for row in rows:
@@ -1036,12 +872,7 @@ def get_account_by_email(email_addr: str) -> Optional[Dict]:
 def get_account_by_id(account_id: int) -> Optional[Dict]:
     """根据 ID 获取账号"""
     db = get_db()
-    cursor = db.execute('''
-        SELECT a.*, g.name as group_name, g.color as group_color
-        FROM accounts a
-        LEFT JOIN groups g ON a.group_id = g.id
-        WHERE a.id = ?
-    ''', (account_id,))
+    cursor = db.execute('SELECT * FROM accounts WHERE id = ?', (account_id,))
     row = cursor.fetchone()
     if not row:
         return None
@@ -1080,7 +911,7 @@ def add_account(email_addr: str, password: str, client_id: str, refresh_token: s
 
 
 def update_account(account_id: int, email_addr: str, password: str, client_id: str,
-                   refresh_token: str, group_id: int, remark: str, status: str) -> bool:
+                   refresh_token: str, remark: str, status: str) -> bool:
     """更新邮箱账号"""
     db = get_db()
     try:
@@ -1091,9 +922,9 @@ def update_account(account_id: int, email_addr: str, password: str, client_id: s
         db.execute('''
             UPDATE accounts
             SET email = ?, password = ?, client_id = ?, refresh_token = ?,
-                group_id = ?, remark = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+                remark = ?, status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, group_id, remark, status, account_id))
+        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, remark, status, account_id))
         db.commit()
         return True
     except Exception:
@@ -1763,192 +1594,6 @@ def get_csrf_token():
         return jsonify({'csrf_token': None, 'csrf_disabled': True})
 
 
-# ==================== 分组 API ====================
-
-@app.route('/api/groups', methods=['GET'])
-@login_required
-def api_get_groups():
-    """获取所有分组"""
-    groups = load_groups()
-    # 添加每个分组的邮箱数量
-    for group in groups:
-        if group['name'] == '临时邮箱':
-            # 临时邮箱分组从 temp_emails 表获取数量
-            group['account_count'] = get_temp_email_count()
-            group['success_count'] = 0
-            group['failed_count'] = 0
-        else:
-            group['account_count'] = get_group_account_count(group['id'])
-            status_counts = get_group_account_status_counts(group['id'])
-            group['success_count'] = status_counts['success_count']
-            group['failed_count'] = status_counts['failed_count']
-    return jsonify({'success': True, 'groups': groups})
-
-
-@app.route('/api/groups/<int:group_id>', methods=['GET'])
-@login_required
-def api_get_group(group_id):
-    """获取单个分组"""
-    group = get_group_by_id(group_id)
-    if not group:
-        return jsonify({'success': False, 'error': '分组不存在'})
-    group['account_count'] = get_group_account_count(group_id)
-    status_counts = get_group_account_status_counts(group_id)
-    group['success_count'] = status_counts['success_count']
-    group['failed_count'] = status_counts['failed_count']
-    return jsonify({'success': True, 'group': group})
-
-
-@app.route('/api/groups', methods=['POST'])
-@login_required
-def api_add_group():
-    """添加分组"""
-    data = request.json
-    name = sanitize_input(data.get('name', '').strip(), max_length=100)
-    description = sanitize_input(data.get('description', ''), max_length=500)
-    color = data.get('color', '#1a1a1a')
-
-    if not name:
-        return jsonify({'success': False, 'error': '分组名称不能为空'})
-
-    group_id = add_group(name, description, color)
-    if group_id:
-        return jsonify({'success': True, 'message': '分组创建成功', 'group_id': group_id})
-    else:
-        return jsonify({'success': False, 'error': '分组名称已存在'})
-
-
-@app.route('/api/groups/<int:group_id>', methods=['PUT'])
-@login_required
-def api_update_group(group_id):
-    """更新分组"""
-    data = request.json
-    name = sanitize_input(data.get('name', '').strip(), max_length=100)
-    description = sanitize_input(data.get('description', ''), max_length=500)
-    color = data.get('color', '#1a1a1a')
-
-    if not name:
-        return jsonify({'success': False, 'error': '分组名称不能为空'})
-
-    if update_group(group_id, name, description, color):
-        return jsonify({'success': True, 'message': '分组更新成功'})
-    else:
-        return jsonify({'success': False, 'error': '更新失败'})
-
-
-@app.route('/api/groups/<int:group_id>', methods=['DELETE'])
-@login_required
-def api_delete_group(group_id):
-    """删除分组"""
-    if group_id == 1:
-        return jsonify({'success': False, 'error': '默认分组不能删除'})
-    
-    if delete_group(group_id):
-        return jsonify({'success': True, 'message': '分组已删除，邮箱已移至默认分组'})
-    else:
-        return jsonify({'success': False, 'error': '删除失败'})
-
-
-@app.route('/api/groups/<int:group_id>/export')
-@login_required
-def api_export_group(group_id):
-    """导出分组下的所有邮箱账号为 TXT 文件（需要二次验证）"""
-    # 检查二次验证token
-    verify_token = request.args.get('verify_token')
-    if not verify_token or not session.get('export_verify_token') or verify_token != session.get('export_verify_token'):
-        return jsonify({'success': False, 'error': '需要二次验证', 'need_verify': True})
-
-    # 清除验证token（一次性使用）
-    session.pop('export_verify_token', None)
-
-    group = get_group_by_id(group_id)
-    if not group:
-        return jsonify({'success': False, 'error': '分组不存在'})
-
-    # 使用 load_accounts 获取该分组下的所有账号（自动解密）
-    accounts = load_accounts(group_id)
-
-    if not accounts:
-        return jsonify({'success': False, 'error': '该分组下没有邮箱账号'})
-
-    # 记录审计日志
-    log_audit('export', 'group', str(group_id), f"导出分组 '{group['name']}' 的 {len(accounts)} 个账号")
-
-    # 生成导出内容（格式：email----password----client_id----refresh_token）
-    lines = []
-    for acc in accounts:
-        line = f"{acc['email']}----{acc.get('password', '')}----{acc['client_id']}----{acc['refresh_token']}"
-        lines.append(line)
-
-    content = '\n'.join(lines)
-
-    # 生成文件名（使用 URL 编码处理中文）
-    filename = f"{group['name']}_accounts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    encoded_filename = quote(filename)
-
-    # 返回文件下载响应
-    return Response(
-        content,
-        mimetype='text/plain; charset=utf-8',
-        headers={
-            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"
-        }
-    )
-
-
-@app.route('/api/groups/<int:group_id>/refresh', methods=['GET'])
-@login_required
-def api_refresh_group_accounts(group_id):
-    """刷新指定分组的账号 token（流式响应，实时返回进度）"""
-    import json
-
-    resume = request.args.get('resume', 'true').lower() == 'true'
-    group = get_group_by_id(group_id)
-    if not group:
-        return jsonify({'success': False, 'error': '分组不存在'})
-    if group.get('name') == '临时邮箱':
-        return jsonify({'success': False, 'error': '临时邮箱分组不支持刷新'})
-
-    def generate():
-        conn = sqlite3.connect(DATABASE, timeout=10)
-        configure_sqlite(conn)
-        conn.row_factory = sqlite3.Row
-
-        try:
-            # 清理超过半年的刷新记录
-            try:
-                conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
-                conn.commit()
-            except Exception as e:
-                print(f"清理旧记录失败: {str(e)}")
-
-            cursor = conn.execute(
-                "SELECT id, email, client_id, refresh_token FROM accounts "
-                "WHERE status = 'active' AND group_id = ? ORDER BY id",
-                (group_id,)
-            )
-            accounts = cursor.fetchall()
-            config = _resolve_refresh_config(conn, len(accounts), mode='full')
-
-            for event in _refresh_accounts_generator(
-                conn=conn,
-                accounts=accounts,
-                refresh_type='group',
-                delay_seconds=config['delay_seconds'],
-                resume=resume,
-                max_workers=config['max_workers'],
-                batch_size=config['batch_size'],
-                group_id=group_id,
-                group_name=group.get('name'),
-                resume_key=f"group_{group_id}",
-                scope_label='group'
-            ):
-                yield f"data: {json.dumps(event)}\n\n"
-
-        finally:
-            conn.close()
-
-    return Response(generate(), mimetype='text/event-stream')
 
 
 @app.route('/api/accounts/export')
@@ -1999,7 +1644,6 @@ def api_export_all_accounts():
 def api_external_checkout_account():
     """外部领取邮箱（简化版）"""
     data = request.json or {}
-    group_id = data.get('group_id')
     owner = data.get('owner')
     ttl_seconds = data.get('ttl_seconds', 900)
     try:
@@ -2008,34 +1652,21 @@ def api_external_checkout_account():
         ttl_seconds = 900
     ttl_seconds = max(60, min(ttl_seconds, 3600))
 
-    if group_id is not None and group_id != '':
-        try:
-            group_id = int(group_id)
-        except Exception:
-            return jsonify({'success': False, 'error': 'group_id 无效'}), 400
-
     db = get_db()
     try:
         db.execute("BEGIN IMMEDIATE")
         # 清理过期租约
         db.execute("DELETE FROM account_leases WHERE expires_at <= CURRENT_TIMESTAMP")
 
-        params = []
-        group_sql = ""
-        if group_id:
-            group_sql = "AND a.group_id = ?"
-            params.append(group_id)
-
         row = db.execute(f'''
             SELECT a.id, a.email
             FROM accounts a
             LEFT JOIN account_leases l ON a.id = l.account_id
             WHERE a.status = 'active'
-            {group_sql}
             AND l.account_id IS NULL
             ORDER BY a.id ASC
             LIMIT 1
-        ''', params).fetchone()
+        ''').fetchone()
 
         if not row:
             db.commit()
@@ -2085,58 +1716,6 @@ def api_external_checkout_complete():
         return jsonify({'success': False, 'error': '释放失败'}), 500
 
 
-@app.route('/api/accounts/export-selected', methods=['POST'])
-@login_required
-def api_export_selected_accounts():
-    """导出选中分组的邮箱账号为 TXT 文件（需要二次验证）"""
-    data = request.json
-    group_ids = data.get('group_ids', [])
-    verify_token = data.get('verify_token')
-
-    # 检查二次验证token
-    if not verify_token or not session.get('export_verify_token') or verify_token != session.get('export_verify_token'):
-        return jsonify({'success': False, 'error': '需要二次验证', 'need_verify': True})
-
-    # 清除验证token（一次性使用）
-    session.pop('export_verify_token', None)
-
-    if not group_ids:
-        return jsonify({'success': False, 'error': '请选择要导出的分组'})
-
-    # 获取选中分组下的所有账号（使用 load_accounts 自动解密）
-    all_accounts = []
-    for group_id in group_ids:
-        accounts = load_accounts(group_id)
-        all_accounts.extend(accounts)
-
-    if not all_accounts:
-        return jsonify({'success': False, 'error': '选中的分组下没有邮箱账号'})
-
-    # 记录审计日志
-    log_audit('export', 'selected_groups', ','.join(map(str, group_ids)), f"导出选中分组的 {len(all_accounts)} 个账号")
-
-    # 生成导出内容
-    lines = []
-    for acc in all_accounts:
-        line = f"{acc['email']}----{acc.get('password', '')}----{acc['client_id']}----{acc['refresh_token']}"
-        lines.append(line)
-
-    content = '\n'.join(lines)
-
-    # 生成文件名
-    filename = f"selected_accounts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    encoded_filename = quote(filename)
-
-    # 返回文件下载响应
-    return Response(
-        content,
-        mimetype='text/plain; charset=utf-8',
-        headers={
-            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"
-        }
-    )
-
-
 @app.route('/api/export/verify', methods=['POST'])
 @login_required
 def api_generate_export_verify_token():
@@ -2169,7 +1748,6 @@ def api_generate_export_verify_token():
 @login_required
 def api_get_accounts():
     """获取所有账号"""
-    group_id = request.args.get('group_id', type=int)
     limit = request.args.get('limit', default=100, type=int)
     offset = request.args.get('offset', default=0, type=int)
     sort_by = request.args.get('sort_by', default='refresh_time')
@@ -2208,9 +1786,6 @@ def api_get_accounts():
     # 组装 WHERE 条件
     where_clauses = []
     params = []
-    if group_id:
-        where_clauses.append("a.group_id = ?")
-        params.append(group_id)
     if tag_ids:
         placeholders = ",".join(["?"] * len(tag_ids))
         where_clauses.append(
@@ -2242,12 +1817,11 @@ def api_get_accounts():
     '''
     total = db.execute(count_sql, params).fetchone()['total']
 
-    # 获取当前页数据（批量获取最后刷新状态 + 分组信息）
+    # 获取当前页数据（批量获取最后刷新状态）
     accounts_sql = f'''
-        SELECT DISTINCT a.*, g.name as group_name, g.color as group_color,
+        SELECT DISTINCT a.*,
                l.status as last_refresh_status, l.error_message as last_refresh_error
         FROM accounts a
-        LEFT JOIN groups g ON a.group_id = g.id
         LEFT JOIN (
             SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
             FROM account_refresh_logs l1
@@ -2290,9 +1864,6 @@ def api_get_accounts():
             'id': acc['id'],
             'email': acc['email'],
             'client_id': acc['client_id'][:8] + '...' if len(acc['client_id']) > 8 else acc['client_id'],
-            'group_id': acc['group_id'],
-            'group_name': acc['group_name'] if acc['group_name'] else '默认分组',
-            'group_color': acc['group_color'] if acc['group_color'] else '#666666',
             'remark': acc['remark'] if acc['remark'] else '',
             'status': acc['status'] if acc['status'] else 'active',
             'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
@@ -2384,7 +1955,6 @@ def api_search_accounts():
     sort_by = request.args.get('sort_by', default='created_at')
     sort_order = request.args.get('sort_order', default='desc')
     tag_ids_param = request.args.get('tag_ids', '').strip()
-    group_id = request.args.get('group_id', type=int)
     refresh_status = request.args.get('refresh_status', '').strip().lower()
 
     if not query:
@@ -2416,12 +1986,6 @@ def api_search_accounts():
             part = part.strip()
             if part.isdigit():
                 tag_ids.append(int(part))
-    group_filter_sql = ""
-    group_filter_params = []
-    if group_id:
-        group_filter_sql = " AND a.group_id = ?"
-        group_filter_params = [group_id]
-
     tag_filter_sql = ""
     tag_filter_params = []
     if tag_ids:
@@ -2454,11 +2018,10 @@ def api_search_accounts():
             ) l ON a.id = l.account_id
             WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
             {tag_filter_sql}
-            {group_filter_sql}
             {status_filter_sql}
         )
         SELECT COUNT(*) as total FROM matched
-    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, *status_filter_params)).fetchone()
+    ''', (like_query, like_query, like_query, *tag_filter_params, *status_filter_params)).fetchone()
     total = count_row['total'] if count_row else 0
 
     rows = db.execute(f'''
@@ -2478,14 +2041,12 @@ def api_search_accounts():
             ) l ON a.id = l.account_id
             WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
             {tag_filter_sql}
-            {group_filter_sql}
             {status_filter_sql}
         )
-        SELECT a.*, g.name as group_name, g.color as group_color,
+        SELECT a.*,
                l.status as last_refresh_status, l.error_message as last_refresh_error
         FROM accounts a
         JOIN matched m ON a.id = m.id
-        LEFT JOIN groups g ON a.group_id = g.id
         LEFT JOIN (
             SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
             FROM account_refresh_logs l1
@@ -2497,7 +2058,7 @@ def api_search_accounts():
         ) l ON a.id = l.account_id
         ORDER BY {sort_field} {sort_dir}, a.id ASC
         LIMIT ? OFFSET ?
-    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, *status_filter_params, limit, offset)).fetchall()
+    ''', (like_query, like_query, like_query, *tag_filter_params, *status_filter_params, limit, offset)).fetchall()
 
     account_ids = [row['id'] for row in rows]
     tags_map = {}
@@ -2526,9 +2087,6 @@ def api_search_accounts():
             'id': acc['id'],
             'email': acc['email'],
             'client_id': acc['client_id'][:8] + '...' if len(acc['client_id']) > 8 else acc['client_id'],
-            'group_id': acc['group_id'],
-            'group_name': acc['group_name'] if acc['group_name'] else '默认分组',
-            'group_color': acc['group_color'] if acc['group_color'] else '#666666',
             'remark': acc['remark'] if acc['remark'] else '',
             'status': acc['status'] if acc['status'] else 'active',
             'created_at': acc['created_at'] if acc['created_at'] else '',
@@ -2553,18 +2111,8 @@ def api_search_accounts():
 def api_clear_refresh_resume_state():
     """清空刷新断点状态"""
     db = get_db()
-    group_id = None
-    try:
-        if request.is_json:
-            group_id = request.json.get('group_id')
-        else:
-            group_id = request.form.get('group_id')
-    except Exception:
-        group_id = None
     try:
         keys = ["refresh_resume_state_manual", "refresh_resume_state_scheduled"]
-        if group_id:
-            keys.append(f"refresh_resume_state_group_{int(group_id)}")
         placeholders = ",".join(["?"] * len(keys))
         db.execute(
             f"DELETE FROM settings WHERE key IN ({placeholders})",
@@ -2581,23 +2129,13 @@ def api_clear_refresh_resume_state():
 def api_get_refresh_resume_status():
     """获取刷新断点状态详情"""
     db = get_db()
-    group_id = request.args.get('group_id', type=int)
     manual_state = _load_resume_state_any(db, 'manual')
     scheduled_state = _load_resume_state_any(db, 'scheduled')
-    group_state = None
-    group_name = None
-    if group_id:
-        group = get_group_by_id(group_id)
-        if group:
-            group_name = group.get('name')
-            group_state = _load_resume_state_any(db, f"group_{group_id}")
     history_rates = _get_recent_refresh_rates(db, limit=5, refresh_types=['manual', 'scheduled'])
     return jsonify({
         'success': True,
         'manual': manual_state,
         'scheduled': scheduled_state,
-        'group': group_state,
-        'group_name': group_name,
         'history_rates': history_rates
     })
 
@@ -2618,8 +2156,6 @@ def api_get_account(account_id):
             'password': account['password'],
             'client_id': account['client_id'],
             'refresh_token': account['refresh_token'],
-            'group_id': account.get('group_id'),
-            'group_name': account.get('group_name', '默认分组'),
             'remark': account.get('remark', ''),
             'status': account.get('status', 'active'),
             'created_at': account.get('created_at', ''),
@@ -2634,7 +2170,7 @@ def api_add_account():
     """添加账号"""
     data = request.json
     account_str = data.get('account_string', '')
-    group_id = data.get('group_id', 1)
+    group_id = 1
     
     if not account_str:
         return jsonify({'success': False, 'error': '请输入账号信息'})
@@ -2710,14 +2246,13 @@ def api_update_account(account_id):
     password = data.get('password', '')
     client_id = data.get('client_id', '')
     refresh_token = data.get('refresh_token', '')
-    group_id = data.get('group_id', 1)
     remark = sanitize_input(data.get('remark', ''), max_length=200)
     status = data.get('status', 'active')
 
     if not email_addr or not client_id or not refresh_token:
         return jsonify({'success': False, 'error': '邮箱、Client ID 和 Refresh Token 不能为空'})
 
-    if update_account(account_id, email_addr, password, client_id, refresh_token, group_id, remark, status):
+    if update_account(account_id, email_addr, password, client_id, refresh_token, remark, status):
         return jsonify({'success': True, 'message': '账号更新成功'})
     else:
         return jsonify({'success': False, 'error': '更新失败'})
@@ -2980,8 +2515,7 @@ def _load_resume_state_any(conn: sqlite3.Connection, resume_key: str) -> Optiona
         'remaining': remaining,
         'stale': stale,
         'duration_seconds': state.get('duration_seconds'),
-        'avg_rate': state.get('avg_rate'),
-        'group_id': state.get('group_id')
+        'avg_rate': state.get('avg_rate')
     }
 
 
@@ -4005,357 +3539,6 @@ def api_get_email_detail(email_addr, message_id):
     return jsonify({'success': False, 'error': '获取邮件详情失败'})
 
 
-# ==================== GPTMail 临时邮箱 API ====================
-
-def gptmail_request(method: str, endpoint: str, params: dict = None, json_data: dict = None) -> Optional[Dict]:
-    """发送 GPTMail API 请求"""
-    try:
-        url = f"{GPTMAIL_BASE_URL}{endpoint}"
-        # 从数据库获取 API Key
-        api_key = get_gptmail_api_key()
-        headers = {
-            "X-API-Key": api_key,
-            "Content-Type": "application/json"
-        }
-        
-        if method.upper() == 'GET':
-            response = requests.get(url, headers=headers, params=params, timeout=30)
-        elif method.upper() == 'POST':
-            response = requests.post(url, headers=headers, json=json_data, timeout=30)
-        elif method.upper() == 'DELETE':
-            response = requests.delete(url, headers=headers, params=params, timeout=30)
-        else:
-            return None
-        
-        if response.status_code == 200:
-            return response.json()
-        else:
-            return {'success': False, 'error': f'API 请求失败: {response.status_code}'}
-    except Exception as e:
-        return {'success': False, 'error': f'请求异常: {str(e)}'}
-
-
-def generate_temp_email(prefix: str = None, domain: str = None) -> Optional[str]:
-    """生成临时邮箱地址"""
-    json_data = {}
-    if prefix:
-        json_data['prefix'] = prefix
-    if domain:
-        json_data['domain'] = domain
-    
-    if json_data:
-        result = gptmail_request('POST', '/api/generate-email', json_data=json_data)
-    else:
-        result = gptmail_request('GET', '/api/generate-email')
-    
-    if result and result.get('success'):
-        return result.get('data', {}).get('email')
-    return None
-
-
-def get_temp_emails_from_api(email_addr: str) -> Optional[List[Dict]]:
-    """从 GPTMail API 获取邮件列表"""
-    result = gptmail_request('GET', '/api/emails', params={'email': email_addr})
-    
-    if result and result.get('success'):
-        return result.get('data', {}).get('emails', [])
-    return None
-
-
-def get_temp_email_detail_from_api(message_id: str) -> Optional[Dict]:
-    """从 GPTMail API 获取邮件详情"""
-    result = gptmail_request('GET', f'/api/email/{message_id}')
-    
-    if result and result.get('success'):
-        return result.get('data')
-    return None
-
-
-def delete_temp_email_from_api(message_id: str) -> bool:
-    """从 GPTMail API 删除邮件"""
-    result = gptmail_request('DELETE', f'/api/email/{message_id}')
-    return result and result.get('success', False)
-
-
-def clear_temp_emails_from_api(email_addr: str) -> bool:
-    """清空 GPTMail 邮箱的所有邮件"""
-    result = gptmail_request('DELETE', '/api/emails/clear', params={'email': email_addr})
-    return result and result.get('success', False)
-
-
-# ==================== 临时邮箱数据库操作 ====================
-
-def get_temp_email_group_id() -> int:
-    """获取临时邮箱分组的 ID"""
-    db = get_db()
-    cursor = db.execute("SELECT id FROM groups WHERE name = '临时邮箱'")
-    row = cursor.fetchone()
-    return row['id'] if row else 2
-
-
-def load_temp_emails() -> List[Dict]:
-    """加载所有临时邮箱"""
-    db = get_db()
-    cursor = db.execute('SELECT * FROM temp_emails ORDER BY created_at DESC')
-    rows = cursor.fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_temp_email_by_address(email_addr: str) -> Optional[Dict]:
-    """根据邮箱地址获取临时邮箱"""
-    db = get_db()
-    cursor = db.execute('SELECT * FROM temp_emails WHERE email = ?', (email_addr,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
-
-
-def add_temp_email(email_addr: str) -> bool:
-    """添加临时邮箱"""
-    db = get_db()
-    try:
-        db.execute('INSERT INTO temp_emails (email) VALUES (?)', (email_addr,))
-        db.commit()
-        return True
-    except sqlite3.IntegrityError:
-        return False
-
-
-def delete_temp_email(email_addr: str) -> bool:
-    """删除临时邮箱及其所有邮件"""
-    db = get_db()
-    try:
-        db.execute('DELETE FROM temp_email_messages WHERE email_address = ?', (email_addr,))
-        db.execute('DELETE FROM temp_emails WHERE email = ?', (email_addr,))
-        db.commit()
-        return True
-    except Exception:
-        return False
-
-
-def save_temp_email_messages(email_addr: str, messages: List[Dict]) -> int:
-    """保存临时邮件到数据库"""
-    db = get_db()
-    saved = 0
-    for msg in messages:
-        try:
-            db.execute('''
-                INSERT OR REPLACE INTO temp_email_messages
-                (message_id, email_address, from_address, subject, content, html_content, has_html, timestamp)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (
-                msg.get('id'),
-                email_addr,
-                msg.get('from_address', ''),
-                msg.get('subject', ''),
-                msg.get('content', ''),
-                msg.get('html_content', ''),
-                1 if msg.get('has_html') else 0,
-                msg.get('timestamp', 0)
-            ))
-            saved += 1
-        except Exception:
-            continue
-    db.commit()
-    return saved
-
-
-def get_temp_email_messages(email_addr: str) -> List[Dict]:
-    """获取临时邮箱的所有邮件（从数据库）"""
-    db = get_db()
-    cursor = db.execute('''
-        SELECT * FROM temp_email_messages
-        WHERE email_address = ?
-        ORDER BY timestamp DESC
-    ''', (email_addr,))
-    rows = cursor.fetchall()
-    return [dict(row) for row in rows]
-
-
-def get_temp_email_message_by_id(message_id: str) -> Optional[Dict]:
-    """根据 ID 获取临时邮件"""
-    db = get_db()
-    cursor = db.execute('SELECT * FROM temp_email_messages WHERE message_id = ?', (message_id,))
-    row = cursor.fetchone()
-    return dict(row) if row else None
-
-
-def delete_temp_email_message(message_id: str) -> bool:
-    """删除临时邮件"""
-    db = get_db()
-    try:
-        db.execute('DELETE FROM temp_email_messages WHERE message_id = ?', (message_id,))
-        db.commit()
-        return True
-    except Exception:
-        return False
-
-
-def get_temp_email_count() -> int:
-    """获取临时邮箱数量"""
-    db = get_db()
-    cursor = db.execute('SELECT COUNT(*) as count FROM temp_emails')
-    row = cursor.fetchone()
-    return row['count'] if row else 0
-
-
-# ==================== 临时邮箱 API 路由 ====================
-
-@app.route('/api/temp-emails', methods=['GET'])
-@login_required
-def api_get_temp_emails():
-    """获取所有临时邮箱"""
-    emails = load_temp_emails()
-    return jsonify({'success': True, 'emails': emails})
-
-
-@app.route('/api/temp-emails/generate', methods=['POST'])
-@login_required
-def api_generate_temp_email():
-    """生成新的临时邮箱"""
-    data = request.json or {}
-    prefix = data.get('prefix')
-    domain = data.get('domain')
-    
-    email_addr = generate_temp_email(prefix, domain)
-    
-    if email_addr:
-        if add_temp_email(email_addr):
-            return jsonify({'success': True, 'email': email_addr, 'message': '临时邮箱创建成功'})
-        else:
-            return jsonify({'success': False, 'error': '邮箱已存在'})
-    else:
-        return jsonify({'success': False, 'error': '生成临时邮箱失败，请稍后重试'})
-
-
-@app.route('/api/temp-emails/<path:email_addr>', methods=['DELETE'])
-@login_required
-def api_delete_temp_email(email_addr):
-    """删除临时邮箱"""
-    if delete_temp_email(email_addr):
-        return jsonify({'success': True, 'message': '临时邮箱已删除'})
-    else:
-        return jsonify({'success': False, 'error': '删除失败'})
-
-
-@app.route('/api/temp-emails/<path:email_addr>/messages', methods=['GET'])
-@login_required
-def api_get_temp_email_messages(email_addr):
-    """获取临时邮箱的邮件列表"""
-    api_messages = get_temp_emails_from_api(email_addr)
-    
-    if api_messages:
-        save_temp_email_messages(email_addr, api_messages)
-    
-    messages = get_temp_email_messages(email_addr)
-    
-    formatted = []
-    for msg in messages:
-        formatted.append({
-            'id': msg.get('message_id'),
-            'from': msg.get('from_address', '未知'),
-            'subject': msg.get('subject', '无主题'),
-            'body_preview': (msg.get('content', '') or '')[:200],
-            'date': msg.get('created_at', ''),
-            'timestamp': msg.get('timestamp', 0),
-            'has_html': msg.get('has_html', 0)
-        })
-    
-    return jsonify({
-        'success': True,
-        'emails': formatted,
-        'count': len(formatted),
-        'method': 'GPTMail'
-    })
-
-
-@app.route('/api/temp-emails/<path:email_addr>/messages/<path:message_id>', methods=['GET'])
-@login_required
-def api_get_temp_email_message_detail(email_addr, message_id):
-    """获取临时邮件详情"""
-    msg = get_temp_email_message_by_id(message_id)
-    
-    if not msg:
-        api_msg = get_temp_email_detail_from_api(message_id)
-        if api_msg:
-            save_temp_email_messages(email_addr, [api_msg])
-            msg = get_temp_email_message_by_id(message_id)
-    
-    if msg:
-        return jsonify({
-            'success': True,
-            'email': {
-                'id': msg.get('message_id'),
-                'from': msg.get('from_address', '未知'),
-                'to': email_addr,
-                'subject': msg.get('subject', '无主题'),
-                'body': msg.get('html_content') if msg.get('has_html') else msg.get('content', ''),
-                'body_type': 'html' if msg.get('has_html') else 'text',
-                'date': msg.get('created_at', ''),
-                'timestamp': msg.get('timestamp', 0)
-            }
-        })
-    else:
-        return jsonify({'success': False, 'error': '邮件不存在'})
-
-
-@app.route('/api/temp-emails/<path:email_addr>/messages/<path:message_id>', methods=['DELETE'])
-@login_required
-def api_delete_temp_email_message(email_addr, message_id):
-    """删除临时邮件"""
-    delete_temp_email_from_api(message_id)
-    if delete_temp_email_message(message_id):
-        return jsonify({'success': True, 'message': '邮件已删除'})
-    else:
-        return jsonify({'success': False, 'error': '删除失败'})
-
-
-@app.route('/api/temp-emails/<path:email_addr>/clear', methods=['DELETE'])
-@login_required
-def api_clear_temp_email_messages(email_addr):
-    """清空临时邮箱的所有邮件"""
-    clear_temp_emails_from_api(email_addr)
-    db = get_db()
-    try:
-        db.execute('DELETE FROM temp_email_messages WHERE email_address = ?', (email_addr,))
-        db.commit()
-        return jsonify({'success': True, 'message': '邮件已清空'})
-    except Exception:
-        return jsonify({'success': False, 'error': '清空失败'})
-
-
-@app.route('/api/temp-emails/<path:email_addr>/refresh', methods=['POST'])
-@login_required
-def api_refresh_temp_email_messages(email_addr):
-    """刷新临时邮箱的邮件"""
-    api_messages = get_temp_emails_from_api(email_addr)
-    
-    if api_messages is not None:
-        saved = save_temp_email_messages(email_addr, api_messages)
-        messages = get_temp_email_messages(email_addr)
-        
-        formatted = []
-        for msg in messages:
-            formatted.append({
-                'id': msg.get('message_id'),
-                'from': msg.get('from_address', '未知'),
-                'subject': msg.get('subject', '无主题'),
-                'body_preview': (msg.get('content', '') or '')[:200],
-                'date': msg.get('created_at', ''),
-                'timestamp': msg.get('timestamp', 0),
-                'has_html': msg.get('has_html', 0)
-            })
-        
-        return jsonify({
-            'success': True,
-            'emails': formatted,
-            'count': len(formatted),
-            'new_count': saved,
-            'method': 'GPTMail'
-        })
-    else:
-        return jsonify({'success': False, 'error': '获取邮件失败'})
-
-
 # ==================== OAuth Token API ====================
 
 @app.route('/api/oauth/auth-url', methods=['GET'])
@@ -4487,6 +3670,7 @@ def api_validate_cron():
 def api_get_settings():
     """获取所有设置"""
     settings = get_all_settings()
+    settings.pop('gptmail_api_key', None)
     # 隐藏密码的部分字符
     if 'login_password' in settings:
         pwd = settings['login_password']
@@ -4518,15 +3702,6 @@ def api_update_settings():
                     updated.append('登录密码')
                 else:
                     errors.append('更新登录密码失败')
-
-    # 更新 GPTMail API Key
-    if 'gptmail_api_key' in data:
-        new_api_key = data['gptmail_api_key'].strip()
-        if new_api_key:
-            if set_setting('gptmail_api_key', new_api_key):
-                updated.append('GPTMail API Key')
-            else:
-                errors.append('更新 GPTMail API Key 失败')
 
     # 更新刷新周期
     if 'refresh_interval_days' in data:

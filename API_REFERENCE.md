@@ -80,40 +80,9 @@
 {"csrf_token": null, "csrf_disabled": true}
 ```
 
-## 分组
-
-### `GET /api/groups`
-**响应**
-```json
-{
-  "success": true,
-  "groups": [
-    {"id": 1, "name": "默认分组", "color": "#666666", "account_count": 12}
-  ]
-}
-```
-
-### `POST /api/groups`
-**请求**
-```json
-{"name": "重要", "description": "客户邮箱", "color": "#ff9900"}
-```
-
-### `PUT /api/groups/<id>`
-**请求**
-```json
-{"name": "重要", "description": "VIP", "color": "#ff9900"}
-```
-
-### `DELETE /api/groups/<id>`
-- 删除分组并将账号移到默认分组。
-
-### `GET /api/groups/<id>/export`
-- 需要二次验证：`?verify_token=...`
-
 ## 账号
 
-### `GET /api/accounts?group_id=<id>`
+### `GET /api/accounts`
 - 返回安全视图（`client_id` 截断，`refresh_token` 不返回）。
 
 **响应（节选）**
@@ -125,8 +94,6 @@
       "id": 1,
       "email": "a@outlook.com",
       "client_id": "abcdef12...",
-      "group_id": 1,
-      "group_name": "默认分组",
       "status": "active",
       "last_refresh_at": "2026-02-01 10:00:00",
       "tags": []
@@ -157,8 +124,7 @@
 **请求**
 ```json
 {
-  "account_string": "email----password----client_id----refresh_token\n...",
-  "group_id": 1
+  "account_string": "email----password----client_id----refresh_token\n..."
 }
 ```
 
@@ -172,7 +138,6 @@
   "password": "pwd",
   "client_id": "client",
   "refresh_token": "rt",
-  "group_id": 1,
   "remark": "备注",
   "status": "active"
 }
@@ -275,12 +240,6 @@
 ```
 
 ### `GET /api/accounts/export?verify_token=...`
-### `GET /api/groups/<id>/export?verify_token=...`
-### `POST /api/accounts/export-selected`
-**请求**
-```json
-{"group_ids": [1, 2], "verify_token": "..."}
-```
 
 ## Token 刷新与日志
 
@@ -306,22 +265,6 @@ data: {"type":"progress","current":3,"total":10,"email":"a@outlook.com","success
 ### `GET /api/accounts/refresh-logs/failed`
 ### `GET /api/accounts/refresh-stats`
 
-## 临时邮箱（GPTMail）
-
-### `GET /api/temp-emails`
-### `POST /api/temp-emails/generate`
-**请求**
-```json
-{"prefix": "test", "domain": "example.com"}
-```
-
-### `GET /api/temp-emails/<email>/messages`
-### `GET /api/temp-emails/<email>/messages/<message_id>`
-### `DELETE /api/temp-emails/<email>`
-### `DELETE /api/temp-emails/<email>/messages/<message_id>`
-### `DELETE /api/temp-emails/<email>/clear`
-### `POST /api/temp-emails/<email>/refresh`
-
 ## OAuth2 助手
 
 ### `GET /api/oauth/auth-url`
@@ -338,5 +281,4 @@ data: {"type":"progress","current":3,"total":10,"email":"a@outlook.com","success
 ### `POST /api/settings/validate-cron`
 ### `GET /api/settings`
 ### `PUT /api/settings`
-- 支持更新：`login_password`, `gptmail_api_key`, `refresh_interval_days`, `refresh_delay_seconds`, `refresh_cron`, `use_cron_schedule`, `enable_scheduled_refresh`。
-
+- 支持更新：`login_password`, `refresh_interval_days`, `refresh_delay_seconds`, `refresh_cron`, `use_cron_schedule`, `enable_scheduled_refresh`。

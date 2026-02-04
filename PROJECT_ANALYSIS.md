@@ -7,7 +7,7 @@
 
 **项目定位**
 - 提供一个 Web 管理界面，集中管理多个 Outlook 邮箱账号并查看邮件内容。
-- 支持 Microsoft Graph API + IMAP（新/旧）三种读取方式，具备账号分组、标签管理、导出、定时刷新、临时邮箱等能力。
+- 支持 Microsoft Graph API + IMAP（新/旧）三种读取方式，具备标签管理、导出、定时刷新等能力。
 
 **相关文档**
 - `ARCHITECTURE.md`：组件架构图与关键数据流
@@ -37,7 +37,7 @@
 
 - `web_outlook_app.py`: 主应用（Flask + API + DB + OAuth + 任务调度）
 - `outlook_mail_reader.py`: 独立命令行测试工具（IMAP/Graph 读取）
-- `templates/index.html`: 主界面（四栏布局 + 大量前端逻辑）
+- `templates/index.html`: 主界面（三栏布局 + 大量前端逻辑）
 - `templates/login.html`: 登录页面
 - `requirements.txt`: Python 依赖
 - `Dockerfile`: 容器镜像构建脚本
@@ -52,8 +52,6 @@
 **常用环境变量**
 - `LOGIN_PASSWORD`: 默认登录密码（首次初始化会写入数据库）
 - `DATABASE_PATH`: SQLite 路径，默认 `data/outlook_accounts.db`
-- `GPTMAIL_BASE_URL`: 临时邮箱 API 地址，默认 `https://mail.chatgpt.org.uk`
-- `GPTMAIL_API_KEY`: 临时邮箱 API Key
 - `OAUTH_CLIENT_ID`: OAuth 助手默认 client_id
 - `OAUTH_REDIRECT_URI`: OAuth 回调地址
 - `PORT` / `HOST` / `FLASK_ENV`: 本地启动配置
@@ -69,19 +67,11 @@
 | 表名 | 作用 | 关键字段 |
 | --- | --- | --- |
 | `settings` | 全局配置 | `key`, `value`, `updated_at` |
-| `groups` | 邮箱分组 | `id`, `name`, `color`, `is_system` |
-| `accounts` | 邮箱账号 | `email`, `password`, `client_id`, `refresh_token`, `group_id`, `status`, `last_refresh_at` |
+| `accounts` | 邮箱账号 | `email`, `password`, `client_id`, `refresh_token`, `status`, `last_refresh_at` |
 | `tags` | 标签 | `name`, `color` |
 | `account_tags` | 账号-标签关联 | `account_id`, `tag_id` |
 | `account_refresh_logs` | 刷新日志 | `account_id`, `refresh_type`, `status`, `error_message` |
 | `audit_logs` | 审计日志 | `action`, `resource_type`, `details`, `user_ip` |
-
-**临时邮箱相关表**
-
-| 表名 | 作用 | 关键字段 |
-| --- | --- | --- |
-| `temp_emails` | 临时邮箱账户 | `email`, `status` |
-| `temp_email_messages` | 临时邮箱邮件 | `message_id`, `email_address`, `subject`, `content`, `html_content`, `timestamp` |
 
 **数据安全**
 - `accounts.password` 与 `accounts.refresh_token` 会使用 Fernet 加密后存储（`enc:` 前缀）。
@@ -90,7 +80,7 @@
 ## 核心模块解析
 
 **1) Web 主服务（`web_outlook_app.py`）**
-- 入口即初始化：创建数据目录、建表、迁移加密字段、创建默认分组。
+- 入口即初始化：创建数据目录、建表、迁移加密字段。
 - 提供完整 API 层，前端通过 JSON 调用。
 - 内置 OAuth2 授权流程助手，简化 refresh token 获取。
 
@@ -111,28 +101,23 @@
 - 固定天数间隔检查（默认每日 2:00 检查）。
 - 自定义 Cron 表达式（`refresh_cron`）。
 
-**5) 邮箱管理与分组标签**
-- 分组 CRUD + 颜色管理。
+**5) 邮箱管理与标签**
 - 邮箱账号 CRUD，支持批量导入（格式：`email----password----client_id----refresh_token`）。
 - 标签管理与账号标签关联。
 
 **6) 导出与审计**
-- 支持按分组、全部、选中分组导出账号信息（TXT）。
+- 支持导出全部账号信息（TXT）。
 - 导出需要二次验证（一次性 token）。
 - 导出操作写入 `audit_logs`。
 
-**7) 临时邮箱（GPTMail）**
-- 调用 GPTMail API 获取/删除临时邮箱邮件。
-- 邮件会落地到本地数据库，支持刷新与缓存展示。
-
-**8) 前端（`templates/index.html`）**
-- 四栏布局：分组、邮箱、邮件列表、邮件详情。
+**7) 前端（`templates/index.html`）**
+- 三栏布局：邮箱、邮件列表、邮件详情。
 - 邮件详情通过 iframe 展示 HTML 内容，并用 DOMPurify 清理。
 - “信任邮件模式”可绕过净化，但有明确确认提示。
 - 邮件列表本地缓存（账号 + 文件夹维度），提高切换速度。
 - 支持全屏查看邮件与滚动加载。
 
-**9) 命令行测试工具（`outlook_mail_reader.py`）**
+**8) 命令行测试工具（`outlook_mail_reader.py`）**
 - 提供三种读取方式的独立测试入口，便于调试 Access Token 与 IMAP 连通性。
 
 ## API 概览
@@ -142,14 +127,6 @@
 - `GET /logout`
 - `GET /`
 - `GET /api/csrf-token`
-
-**分组**
-- `GET /api/groups`
-- `GET /api/groups/<id>`
-- `POST /api/groups`
-- `PUT /api/groups/<id>`
-- `DELETE /api/groups/<id>`
-- `GET /api/groups/<id>/export`
 
 **账号**
 - `GET /api/accounts`
@@ -173,7 +150,6 @@
 
 **导出**
 - `GET /api/accounts/export`
-- `POST /api/accounts/export-selected`
 - `POST /api/export/verify`
 
 **Token 刷新与日志**
@@ -187,15 +163,6 @@
 - `GET /api/accounts/refresh-logs/failed`
 - `GET /api/accounts/refresh-stats`
 
-**临时邮箱**
-- `GET /api/temp-emails`
-- `POST /api/temp-emails/generate`
-- `DELETE /api/temp-emails/<email>`
-- `GET /api/temp-emails/<email>/messages`
-- `GET /api/temp-emails/<email>/messages/<message_id>`
-- `DELETE /api/temp-emails/<email>/messages/<message_id>`
-- `DELETE /api/temp-emails/<email>/clear`
-- `POST /api/temp-emails/<email>/refresh`
 
 **OAuth2 助手**
 - `GET /api/oauth/auth-url`
@@ -224,8 +191,8 @@
 
 ## 快速理解系统运行流程
 
-1. 启动时初始化数据库与默认分组。
-2. 登录后加载分组与账号信息。
+1. 启动时初始化数据库。
+2. 登录后加载账号信息。
 3. 选择账号后调用邮件 API 获取列表。
 4. 邮件详情通过 Graph/IMAP 拉取内容并在前端渲染。
 5. 刷新任务可手动触发或由调度器定时执行。

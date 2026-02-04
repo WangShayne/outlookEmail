@@ -1,15 +1,14 @@
 # Outlook 邮件管理工具
 
-一个完整的 Outlook 邮箱管理与查看平台，支持多账号、多分组、标签管理，集成 Graph API + IMAP 的邮件读取能力，并提供 Web 界面与定时刷新机制。
+一个完整的 Outlook 邮箱管理与查看平台，支持多账号与标签管理，集成 Graph API + IMAP 的邮件读取能力，并提供 Web 界面与定时刷新机制。
 
 ## 功能概览
 
-- 多账号管理：批量导入、分组、备注、启用/停用
+- 多账号管理：批量导入、备注、启用/停用
 - 邮件读取：Graph API 优先，IMAP 新/旧服务器兜底
 - 邮件列表与详情：分页、全屏查看、HTML 安全净化
 - 标签系统：账号打标签与筛选
 - Token 刷新：单个/全量刷新、失败重试、刷新日志
-- 临时邮箱：集成 GPTMail API
 - 安全机制：bcrypt 密码哈希、Fernet 数据加密、CSRF/XSS 防护、审计日志
 
 ## 文档索引
@@ -75,13 +74,12 @@ python web_outlook_app.py
 **常用**
 - `LOGIN_PASSWORD`：首次初始化默认登录密码
 - `DATABASE_PATH`：SQLite 路径（默认 `data/outlook_accounts.db`）
-- `GPTMAIL_BASE_URL` / `GPTMAIL_API_KEY`
 - `OAUTH_CLIENT_ID` / `OAUTH_REDIRECT_URI`
 - `PORT` / `HOST` / `FLASK_ENV`
 
 ## 数据存储
 
-- 使用 SQLite 持久化账号/分组/标签/日志数据
+- 使用 SQLite 持久化账号/标签/日志数据
 - 默认数据库：`data/outlook_accounts.db`
 - 账号敏感字段加密存储（Fernet）
 

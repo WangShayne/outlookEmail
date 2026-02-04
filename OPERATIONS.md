@@ -20,7 +20,6 @@
 **常用**
 - `LOGIN_PASSWORD`: 首次初始化默认登录密码
 - `DATABASE_PATH`: SQLite 路径（默认 `data/outlook_accounts.db`）
-- `GPTMAIL_BASE_URL` / `GPTMAIL_API_KEY`
 - `OAUTH_CLIENT_ID` / `OAUTH_REDIRECT_URI`
 - `PORT`, `HOST`, `FLASK_ENV`
 
@@ -99,4 +98,3 @@ cp data/outlook_accounts.db data/outlook_accounts.db.bak
 - 生产环境务必使用高强度 `SECRET_KEY`。
 - 不要在日志中输出 refresh_token。
 - 如果需要对外访问，建议放在反向代理后并启用 HTTPS。
-
