@@ -223,6 +223,13 @@
             padding-left: 20px;
         }
 
+        .group-counts {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 4px;
+        }
+
         .group-count {
             font-size: 12px;
             color: #999;
@@ -233,6 +240,29 @@
 
         .group-item.active .group-count {
             background-color: #d8d8d8;
+        }
+
+        .group-status-count {
+            font-size: 11px;
+            padding: 2px 6px;
+            border-radius: 10px;
+            background-color: #f5f5f5;
+            color: #777;
+        }
+
+        .group-status-count.success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+        }
+
+        .group-status-count.failed {
+            background-color: #ffebee;
+            color: #c62828;
+        }
+
+        .group-status-count.unknown {
+            background-color: #f1f5f9;
+            color: #64748b;
         }
 
         .group-actions {
@@ -362,6 +392,37 @@
             background-color: #1a1a1a !important;
             color: #ffffff !important;
             border-color: #1a1a1a !important;
+        }
+
+        .status-filter {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-bottom: 1px solid #e5e5e5;
+            background-color: #fafafa;
+        }
+
+        .status-filter-btn {
+            background-color: #ffffff;
+            border: 1px solid #e5e5e5;
+            color: #666;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+            transition: all 0.15s;
+        }
+
+        .status-filter-btn:hover {
+            background-color: #f5f5f5;
+            border-color: #ccc;
+        }
+
+        .status-filter-btn.active {
+            background-color: #1a1a1a;
+            color: #ffffff;
+            border-color: #1a1a1a;
         }
 
         .account-list {
@@ -1789,6 +1850,13 @@ select:focus {
                     <!-- Tag Filter moved to new row -->
                 </div>
             </div>
+            <div class="status-filter" id="statusFilter">
+                <span class="sort-label">状态：</span>
+                <button class="status-filter-btn active" data-status="all" onclick="setRefreshStatusFilter('all')">全部</button>
+                <button class="status-filter-btn" data-status="success" onclick="setRefreshStatusFilter('success')">成功</button>
+                <button class="status-filter-btn" data-status="failed" onclick="setRefreshStatusFilter('failed')">失败</button>
+                <button class="status-filter-btn" data-status="unknown" onclick="setRefreshStatusFilter('unknown')">未刷新</button>
+            </div>
             <!-- Tag Filter Row -->
             <div id="tagFilterContainer"
                 style="padding: 8px 16px; border-bottom: 1px solid #e5e5e5; display: flex; flex-wrap: wrap; gap: 8px; background-color: #fafafa; display: none;">
@@ -1803,10 +1871,15 @@ select:focus {
             <!-- 批量操作栏 -->
             <div id="batchActionBar"
                 style="display: none; padding: 8px 16px; border-top: 1px solid #e5e5e5; background: #f8f9fa; gap: 8px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666;">
+                    <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAllVisible(this)">
+                    全选当前页
+                </label>
                 <span id="selectedCount" style="font-size: 12px; color: #666;">已选 0 项</span>
                 <div style="flex: 1;"></div>
                 <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('add')">打标签</button>
                 <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('remove')">去标签</button>
+                <button class="btn btn-sm btn-danger" onclick="deleteSelectedAccounts()">删除选中</button>
             </div>
             <div class="account-pagination" id="accountPagination" style="display: none;">
                 <button class="page-btn" id="accountPrevPage" onclick="changeAccountPage(-1)">上一页</button>
@@ -2522,6 +2595,7 @@ select:focus {
         let isSearchMode = false;
         let currentSearchQuery = '';
         let searchPaging = { offset: 0, limit: DEFAULT_ACCOUNT_PAGE_SIZE, total: 0 };
+        let currentRefreshStatus = 'all';
         let editingGroupId = null;
         let selectedColor = '#1a1a1a';
         let isTempEmailGroup = false; // 是否是临时邮箱分组
@@ -2988,6 +3062,17 @@ ${details}
                 const isSystem = group.is_system === 1 || group.name === '临时邮箱';
                 const isTempGroup = group.name === '临时邮箱';
                 const isDefault = group.id === 1;
+                const totalCount = group.account_count || 0;
+                const successCount = group.success_count || 0;
+                const failedCount = group.failed_count || 0;
+                const unknownCount = Math.max(0, totalCount - successCount - failedCount);
+                const statusBadges = isTempGroup
+                    ? ''
+                    : `
+                        <span class="group-status-count success">成功 ${successCount}</span>
+                        <span class="group-status-count failed">失败 ${failedCount}</span>
+                        ${unknownCount > 0 ? `<span class="group-status-count unknown">未刷新 ${unknownCount}</span>` : ''}
+                    `;
 
                 return `
                     <div class="group-item ${currentGroupId === group.id ? 'active' : ''} ${isTempGroup ? 'temp-email-group' : ''}"
@@ -2998,7 +3083,10 @@ ${details}
                             <span class="group-name">${escapeHtml(group.name)}${isTempGroup ? ' 高效' : ''}</span>
                         </div>
                         <div class="group-row-2">
-                            <span class="group-count">${group.account_count || 0} 个邮箱</span>
+                            <div class="group-counts">
+                                <span class="group-count">${totalCount} 个邮箱</span>
+                                ${statusBadges}
+                            </div>
                             <div class="group-actions">
                                 ${!isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); editGroup(${group.id})" title="编辑">编辑</button>` : ''}
                                 ${!isDefault && !isSystem ? `<button class="group-action-btn" onclick="event.stopPropagation(); deleteGroup(${group.id})" title="删除">删除</button>` : ''}
@@ -3093,6 +3181,7 @@ ${details}
             const paging = accountsPaging[groupId];
             const tagIds = getSelectedTagIds();
             const tagKey = tagIds.sort((a, b) => a - b).join(',');
+            const statusFilter = currentRefreshStatus;
 
             const cached = accountsCache[groupId];
             if (!forceRefresh && cached &&
@@ -3100,7 +3189,8 @@ ${details}
                 cached.limit === paging.limit &&
                 cached.sortBy === currentSortBy &&
                 cached.sortOrder === currentSortOrder &&
-                cached.tagKey === tagKey
+                cached.tagKey === tagKey &&
+                cached.statusFilter === statusFilter
             ) {
                 renderAccountList(cached.items, paging.offset);
                 updateAccountPaginationControls();
@@ -3120,6 +3210,9 @@ ${details}
                 if (tagIds.length > 0) {
                     params.append('tag_ids', tagIds.join(','));
                 }
+                if (statusFilter && statusFilter !== 'all') {
+                    params.append('refresh_status', statusFilter);
+                }
 
                 const response = await fetch(`/api/accounts?${params.toString()}`);
                 const data = await response.json();
@@ -3137,7 +3230,8 @@ ${details}
                         offset: paging.offset,
                         sortBy: currentSortBy,
                         sortOrder: currentSortOrder,
-                        tagKey
+                        tagKey,
+                        statusFilter
                     };
                     renderAccountList(data.accounts, paging.offset);
                     updateAccountPaginationControls();
@@ -3197,6 +3291,8 @@ ${details}
                     </div>
                 </div>
             `).join('');
+
+            updateBatchActionBar();
         }
 
         // 排序相关变量
@@ -3230,6 +3326,18 @@ ${details}
             }
 
             // 重新加载并排序账号列表（服务器分页）
+            if (isSearchMode && currentSearchQuery) {
+                searchAccounts(currentSearchQuery, 0);
+            } else if (currentGroupId && !isTempEmailGroup) {
+                loadAccountsByGroup(currentGroupId, true, 0);
+            }
+        }
+
+        function setRefreshStatusFilter(status) {
+            currentRefreshStatus = status;
+            document.querySelectorAll('.status-filter-btn').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.status === status);
+            });
             if (isSearchMode && currentSearchQuery) {
                 searchAccounts(currentSearchQuery, 0);
             } else if (currentGroupId && !isTempEmailGroup) {
@@ -3403,6 +3511,9 @@ ${details}
                 if (tagIds.length > 0) {
                     params.append('tag_ids', tagIds.join(','));
                 }
+                if (currentRefreshStatus && currentRefreshStatus !== 'all') {
+                    params.append('refresh_status', currentRefreshStatus);
+                }
                 const groupFilterId = getSearchGroupFilterId();
                 if (groupFilterId) {
                     params.append('group_id', String(groupFilterId));
@@ -3562,6 +3673,7 @@ ${details}
                 limit: searchPaging.limit,
                 sortBy: currentSortBy,
                 sortOrder: currentSortOrder,
+                refreshStatus: currentRefreshStatus,
                 tagIds,
                 groupId: groupFilterId
             });
@@ -6096,6 +6208,40 @@ ${details}
             }
         }
 
+        async function deleteFailedAccount(accountId, accountEmail) {
+            if (!confirm(`确定要删除 ${accountEmail} 吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch(`/api/accounts/${accountId}`, { method: 'DELETE' });
+                const data = await response.json();
+
+                if (data.success) {
+                    showToast(`已删除 ${accountEmail}`, 'success');
+
+                    const row = document.querySelector(`.failed-item[data-account-id="${accountId}"]`);
+                    if (row) row.remove();
+
+                    const listEl = document.getElementById('failedList');
+                    if (listEl && listEl.children.length === 0) {
+                        hideFailedList();
+                    }
+
+                    loadGroups();
+                    loadRefreshStats();
+                    if (currentGroupId && !isTempEmailGroup) {
+                        invalidateAccountCaches(currentGroupId);
+                        loadAccountsByGroup(currentGroupId, true);
+                    }
+                } else {
+                    handleApiError(data, '删除失败');
+                }
+            } catch (error) {
+                showToast('删除失败', 'error');
+            }
+        }
+
         // 显示失败列表（从数据）
         function showFailedListFromData(failedList) {
             const container = document.getElementById('failedListContainer');
@@ -6112,14 +6258,19 @@ ${details}
             let html = '';
             failedList.forEach(item => {
                 html += `
-                    <div style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: start;">
+                    <div class="failed-item" data-account-id="${item.id}" style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: start;">
                         <div style="flex: 1;">
                             <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(item.email)}</div>
                             <div style="font-size: 12px; color: #dc3545;">${escapeHtml(item.error || '未知错误')}</div>
                         </div>
-                        <button class="btn btn-sm btn-primary" onclick="retrySingleAccount(${item.id}, '${escapeHtml(item.email)}')">
-                            重试
-                        </button>
+                        <div style="display: flex; gap: 6px;">
+                            <button class="btn btn-sm btn-primary" onclick="retrySingleAccount(${item.id}, '${escapeJs(item.email)}')">
+                                重试
+                            </button>
+                            <button class="btn btn-sm btn-danger" onclick="deleteFailedAccount(${item.id}, '${escapeJs(item.email)}')">
+                                删除
+                            </button>
+                        </div>
                     </div>
                 `;
             });
@@ -6151,15 +6302,20 @@ ${details}
                         let html = '';
                         data.logs.forEach(log => {
                             html += `
-                                <div style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: center;">
+                                <div class="failed-item" data-account-id="${log.account_id}" style="padding: 12px; border-bottom: 1px solid #e5e5e5; display: flex; justify-content: space-between; align-items: center;">
                                     <div style="flex: 1;">
                                         <div style="font-weight: 600; margin-bottom: 4px;">${escapeHtml(log.account_email)}</div>
                                         <div style="font-size: 12px; color: #dc3545;">${escapeHtml(log.error_message || '未知错误')}</div>
                                         <div style="font-size: 11px; color: #999; margin-top: 4px;">最后刷新: ${formatDateTime(log.created_at)}</div>
                                     </div>
-                                    <button class="btn btn-sm btn-primary" onclick="retrySingleAccount(${log.account_id}, '${escapeJs(log.account_email)}')">
-                                        重试
-                                    </button>
+                                    <div style="display: flex; gap: 6px;">
+                                        <button class="btn btn-sm btn-primary" onclick="retrySingleAccount(${log.account_id}, '${escapeJs(log.account_email)}')">
+                                            重试
+                                        </button>
+                                        <button class="btn btn-sm btn-danger" onclick="deleteFailedAccount(${log.account_id}, '${escapeJs(log.account_email)}')">
+                                            删除
+                                        </button>
+                                    </div>
                                 </div>
                             `;
                         });
@@ -6452,16 +6608,44 @@ ${details}
 
         // 更新批量操作栏状态
         function updateBatchActionBar() {
+            const boxes = document.querySelectorAll('.account-select-checkbox');
             const checked = document.querySelectorAll('.account-select-checkbox:checked');
             const bar = document.getElementById('batchActionBar');
             const countSpan = document.getElementById('selectedCount');
+            const selectAll = document.getElementById('selectAllCheckbox');
 
-            if (checked.length > 0) {
+            if (boxes.length > 0) {
                 bar.style.display = 'flex';
                 countSpan.textContent = `已选 ${checked.length} 项`;
             } else {
                 bar.style.display = 'none';
             }
+
+            if (selectAll) {
+                if (checked.length === 0) {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = false;
+                } else if (checked.length === boxes.length) {
+                    selectAll.checked = true;
+                    selectAll.indeterminate = false;
+                } else {
+                    selectAll.checked = false;
+                    selectAll.indeterminate = true;
+                }
+            }
+        }
+
+        function toggleSelectAllVisible(checkbox) {
+            const boxes = document.querySelectorAll('.account-select-checkbox');
+            boxes.forEach(cb => {
+                cb.checked = checkbox.checked;
+            });
+            updateBatchActionBar();
+        }
+
+        function getSelectedAccountIds() {
+            const checked = document.querySelectorAll('.account-select-checkbox:checked');
+            return Array.from(checked).map(cb => parseInt(cb.value)).filter(Boolean);
         }
 
         let batchActionType = ''; // 'add' or 'remove'
@@ -6541,6 +6725,42 @@ ${details}
                 }
             } catch (error) {
                 showToast('请求失败', 'error');
+            }
+        }
+
+        async function deleteSelectedAccounts() {
+            const accountIds = getSelectedAccountIds();
+            if (accountIds.length === 0) {
+                showToast('未选择任何账号', 'info');
+                return;
+            }
+
+            if (!confirm(`确定要删除选中的 ${accountIds.length} 个账号吗？`)) {
+                return;
+            }
+
+            try {
+                const response = await fetch('/api/accounts/batch-delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ account_ids: accountIds })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast(`已删除 ${data.deleted || accountIds.length} 个账号`, 'success');
+                    invalidateAccountCaches();
+                    loadGroups();
+                    if (isSearchMode && currentSearchQuery) {
+                        searchAccounts(currentSearchQuery, 0);
+                    } else if (currentGroupId && !isTempEmailGroup) {
+                        loadAccountsByGroup(currentGroupId, true, 0);
+                    }
+                    updateBatchActionBar();
+                } else {
+                    handleApiError(data, '删除失败');
+                }
+            } catch (error) {
+                showToast('删除失败', 'error');
             }
         }
     </script>

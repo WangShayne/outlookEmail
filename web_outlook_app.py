@@ -12,6 +12,7 @@ import imaplib
 import sqlite3
 import os
 import hashlib
+import hmac
 import secrets
 import time
 import json
@@ -21,7 +22,7 @@ import random
 import bcrypt
 import base64
 import html
-from datetime import datetime
+from datetime import datetime, timedelta
 from email.header import decode_header
 from typing import Optional, List, Dict, Any
 from urllib.parse import quote
@@ -512,6 +513,18 @@ def init_db():
         )
     ''')
 
+    # 外部领取邮箱租约表
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS account_leases (
+            lease_id TEXT PRIMARY KEY,
+            account_id INTEGER UNIQUE NOT NULL,
+            owner TEXT,
+            expires_at TIMESTAMP NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
+        )
+    ''')
+
     # 创建审计日志表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS audit_logs (
@@ -861,6 +874,31 @@ def get_group_account_count(group_id: int) -> int:
     return row['count'] if row else 0
 
 
+def get_group_account_status_counts(group_id: int) -> Dict[str, int]:
+    """获取分组下邮箱的最近刷新状态统计"""
+    db = get_db()
+    row = db.execute('''
+        SELECT
+            SUM(CASE WHEN l.status = 'success' THEN 1 ELSE 0 END) as success_count,
+            SUM(CASE WHEN l.status = 'failed' THEN 1 ELSE 0 END) as failed_count
+        FROM accounts a
+        LEFT JOIN (
+            SELECT l1.account_id, l1.status
+            FROM account_refresh_logs l1
+            INNER JOIN (
+                SELECT account_id, MAX(created_at) as max_created
+                FROM account_refresh_logs
+                GROUP BY account_id
+            ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+        ) l ON a.id = l.account_id
+        WHERE a.group_id = ?
+    ''', (group_id,)).fetchone()
+    return {
+        'success_count': row['success_count'] or 0,
+        'failed_count': row['failed_count'] or 0
+    }
+
+
 # ==================== 邮箱账号操作 ====================
 
 def load_accounts(group_id: int = None) -> List[Dict]:
@@ -1066,6 +1104,9 @@ def delete_account_by_id(account_id: int) -> bool:
     """删除邮箱账号"""
     db = get_db()
     try:
+        db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
+        db.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
+        db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
         db.execute('DELETE FROM accounts WHERE id = ?', (account_id,))
         db.commit()
         return True
@@ -1077,6 +1118,12 @@ def delete_account_by_email(email_addr: str) -> bool:
     """根据邮箱地址删除账号"""
     db = get_db()
     try:
+        row = db.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
+        if row:
+            account_id = row['id']
+            db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
+            db.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
+            db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
         db.execute('DELETE FROM accounts WHERE email = ?', (email_addr,))
         db.commit()
         return True
@@ -1632,6 +1679,17 @@ def login_required(f):
     return decorated_function
 
 
+def external_api_required(f):
+    """外部 API 验证（X-API-Key == SECRET_KEY）"""
+    @wraps(f)
+    def decorated_function(*args, **kwargs):
+        api_key = request.headers.get('X-API-Key', '')
+        if not api_key or not secret_key or not hmac.compare_digest(api_key, secret_key):
+            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        return f(*args, **kwargs)
+    return decorated_function
+
+
 # ==================== Flask 路由 ====================
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -1717,8 +1775,13 @@ def api_get_groups():
         if group['name'] == '临时邮箱':
             # 临时邮箱分组从 temp_emails 表获取数量
             group['account_count'] = get_temp_email_count()
+            group['success_count'] = 0
+            group['failed_count'] = 0
         else:
             group['account_count'] = get_group_account_count(group['id'])
+            status_counts = get_group_account_status_counts(group['id'])
+            group['success_count'] = status_counts['success_count']
+            group['failed_count'] = status_counts['failed_count']
     return jsonify({'success': True, 'groups': groups})
 
 
@@ -1730,6 +1793,9 @@ def api_get_group(group_id):
     if not group:
         return jsonify({'success': False, 'error': '分组不存在'})
     group['account_count'] = get_group_account_count(group_id)
+    status_counts = get_group_account_status_counts(group_id)
+    group['success_count'] = status_counts['success_count']
+    group['failed_count'] = status_counts['failed_count']
     return jsonify({'success': True, 'group': group})
 
 
@@ -1928,6 +1994,97 @@ def api_export_all_accounts():
     )
 
 
+@app.route('/api/external/checkout', methods=['POST'])
+@external_api_required
+def api_external_checkout_account():
+    """外部领取邮箱（简化版）"""
+    data = request.json or {}
+    group_id = data.get('group_id')
+    owner = data.get('owner')
+    ttl_seconds = data.get('ttl_seconds', 900)
+    try:
+        ttl_seconds = int(ttl_seconds)
+    except Exception:
+        ttl_seconds = 900
+    ttl_seconds = max(60, min(ttl_seconds, 3600))
+
+    if group_id is not None and group_id != '':
+        try:
+            group_id = int(group_id)
+        except Exception:
+            return jsonify({'success': False, 'error': 'group_id 无效'}), 400
+
+    db = get_db()
+    try:
+        db.execute("BEGIN IMMEDIATE")
+        # 清理过期租约
+        db.execute("DELETE FROM account_leases WHERE expires_at <= CURRENT_TIMESTAMP")
+
+        params = []
+        group_sql = ""
+        if group_id:
+            group_sql = "AND a.group_id = ?"
+            params.append(group_id)
+
+        row = db.execute(f'''
+            SELECT a.id, a.email
+            FROM accounts a
+            LEFT JOIN account_leases l ON a.id = l.account_id
+            WHERE a.status = 'active'
+            {group_sql}
+            AND l.account_id IS NULL
+            ORDER BY a.id ASC
+            LIMIT 1
+        ''', params).fetchone()
+
+        if not row:
+            db.commit()
+            return jsonify({'success': False, 'error': '没有可用邮箱'}), 404
+
+        lease_id = uuid.uuid4().hex
+        expires_at = (datetime.utcnow() + timedelta(seconds=ttl_seconds)).strftime('%Y-%m-%d %H:%M:%S')
+        db.execute('''
+            INSERT INTO account_leases (lease_id, account_id, owner, expires_at)
+            VALUES (?, ?, ?, ?)
+        ''', (lease_id, row['id'], owner, expires_at))
+        db.commit()
+
+        log_audit('checkout', 'account', str(row['id']), f"lease_id={lease_id}, owner={owner}")
+        return jsonify({
+            'success': True,
+            'lease_id': lease_id,
+            'account_id': row['id'],
+            'email': row['email'],
+            'expires_at': expires_at
+        })
+    except Exception:
+        db.execute("ROLLBACK")
+        return jsonify({'success': False, 'error': '领取失败'}), 500
+
+
+@app.route('/api/external/checkout/complete', methods=['POST'])
+@external_api_required
+def api_external_checkout_complete():
+    """外部完成/释放邮箱"""
+    data = request.json or {}
+    lease_id = data.get('lease_id', '')
+    result = data.get('result', '')
+    if not lease_id:
+        return jsonify({'success': False, 'error': '参数不完整'}), 400
+
+    db = get_db()
+    try:
+        row = db.execute('SELECT account_id FROM account_leases WHERE lease_id = ?', (lease_id,)).fetchone()
+        if not row:
+            return jsonify({'success': False, 'error': '租约不存在'}), 404
+        db.execute('DELETE FROM account_leases WHERE lease_id = ?', (lease_id,))
+        db.commit()
+        log_audit('checkout_complete', 'account', str(row['account_id']), f"lease_id={lease_id}, result={result}")
+        return jsonify({'success': True})
+    except Exception:
+        return jsonify({'success': False, 'error': '释放失败'}), 500
+
+
 @app.route('/api/accounts/export-selected', methods=['POST'])
 @login_required
 def api_export_selected_accounts():
@@ -2018,6 +2175,7 @@ def api_get_accounts():
     sort_by = request.args.get('sort_by', default='refresh_time')
     sort_order = request.args.get('sort_order', default='asc')
     tag_ids_param = request.args.get('tag_ids', '').strip()
+    refresh_status = request.args.get('refresh_status', '').strip().lower()
 
     if limit is None:
         limit = 100
@@ -2059,11 +2217,29 @@ def api_get_accounts():
             f"a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
         )
         params.extend(tag_ids)
+    if refresh_status in ('success', 'failed'):
+        where_clauses.append("l.status = ?")
+        params.append(refresh_status)
+    elif refresh_status == 'unknown':
+        where_clauses.append("l.status IS NULL")
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     # 统计总数
-    count_sql = f"SELECT COUNT(DISTINCT a.id) as total FROM accounts a {where_sql}"
+    count_sql = f'''
+        SELECT COUNT(DISTINCT a.id) as total
+        FROM accounts a
+        LEFT JOIN (
+            SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
+            FROM account_refresh_logs l1
+            INNER JOIN (
+                SELECT account_id, MAX(created_at) as max_created
+                FROM account_refresh_logs
+                GROUP BY account_id
+            ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+        ) l ON a.id = l.account_id
+        {where_sql}
+    '''
     total = db.execute(count_sql, params).fetchone()['total']
 
     # 获取当前页数据（批量获取最后刷新状态 + 分组信息）
@@ -2209,6 +2385,7 @@ def api_search_accounts():
     sort_order = request.args.get('sort_order', default='desc')
     tag_ids_param = request.args.get('tag_ids', '').strip()
     group_id = request.args.get('group_id', type=int)
+    refresh_status = request.args.get('refresh_status', '').strip().lower()
 
     if not query:
         return jsonify({'success': True, 'accounts': [], 'total': 0, 'limit': limit, 'offset': offset})
@@ -2252,18 +2429,36 @@ def api_search_accounts():
         tag_filter_sql = f" AND a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
         tag_filter_params = tag_ids
 
+    status_filter_sql = ""
+    status_filter_params = []
+    if refresh_status in ('success', 'failed'):
+        status_filter_sql = " AND l.status = ?"
+        status_filter_params = [refresh_status]
+    elif refresh_status == 'unknown':
+        status_filter_sql = " AND l.status IS NULL"
+
     count_row = db.execute(f'''
         WITH matched AS (
             SELECT DISTINCT a.id
             FROM accounts a
             LEFT JOIN account_tags at ON a.id = at.account_id
             LEFT JOIN tags t ON at.tag_id = t.id
+            LEFT JOIN (
+                SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
+                FROM account_refresh_logs l1
+                INNER JOIN (
+                    SELECT account_id, MAX(created_at) as max_created
+                    FROM account_refresh_logs
+                    GROUP BY account_id
+                ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+            ) l ON a.id = l.account_id
             WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
             {tag_filter_sql}
             {group_filter_sql}
+            {status_filter_sql}
         )
         SELECT COUNT(*) as total FROM matched
-    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params)).fetchone()
+    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, *status_filter_params)).fetchone()
     total = count_row['total'] if count_row else 0
 
     rows = db.execute(f'''
@@ -2272,9 +2467,19 @@ def api_search_accounts():
             FROM accounts a
             LEFT JOIN account_tags at ON a.id = at.account_id
             LEFT JOIN tags t ON at.tag_id = t.id
+            LEFT JOIN (
+                SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
+                FROM account_refresh_logs l1
+                INNER JOIN (
+                    SELECT account_id, MAX(created_at) as max_created
+                    FROM account_refresh_logs
+                    GROUP BY account_id
+                ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+            ) l ON a.id = l.account_id
             WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
             {tag_filter_sql}
             {group_filter_sql}
+            {status_filter_sql}
         )
         SELECT a.*, g.name as group_name, g.color as group_color,
                l.status as last_refresh_status, l.error_message as last_refresh_error
@@ -2292,7 +2497,7 @@ def api_search_accounts():
         ) l ON a.id = l.account_id
         ORDER BY {sort_field} {sort_dir}, a.id ASC
         LIMIT ? OFFSET ?
-    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, limit, offset)).fetchall()
+    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, *status_filter_params, limit, offset)).fetchall()
 
     account_ids = [row['id'] for row in rows]
     tags_map = {}
@@ -2437,6 +2642,8 @@ def api_add_account():
     # 支持批量导入（多行）
     lines = account_str.strip().split('\n')
     added = 0
+    skipped = 0
+    invalid = 0
     
     for line in lines:
         line = line.strip()
@@ -2444,15 +2651,48 @@ def api_add_account():
             continue
         
         parsed = parse_account_string(line)
-        if parsed:
-            if add_account(parsed['email'], parsed['password'], 
-                          parsed['client_id'], parsed['refresh_token'], group_id):
-                added += 1
+        if not parsed:
+            invalid += 1
+            continue
+
+        if add_account(parsed['email'], parsed['password'],
+                       parsed['client_id'], parsed['refresh_token'], group_id):
+            added += 1
+        else:
+            skipped += 1
     
     if added > 0:
-        return jsonify({'success': True, 'message': f'成功添加 {added} 个账号'})
-    else:
-        return jsonify({'success': False, 'error': '没有新账号被添加（可能格式错误或已存在）'})
+        details = []
+        if skipped > 0:
+            details.append(f'已存在 {skipped} 个')
+        if invalid > 0:
+            details.append(f'格式错误 {invalid} 个')
+        suffix = f'（{", ".join(details)}）' if details else ''
+        return jsonify({
+            'success': True,
+            'message': f'成功添加 {added} 个账号{suffix}',
+            'added': added,
+            'skipped': skipped,
+            'invalid': invalid
+        })
+
+    if skipped > 0:
+        details = f'，格式错误 {invalid} 个' if invalid > 0 else ''
+        return jsonify({
+            'success': True,
+            'message': f'已存在 {skipped} 个账号，已跳过{details}',
+            'added': added,
+            'skipped': skipped,
+            'invalid': invalid
+        })
+
+    return jsonify({
+        'success': False,
+        'error': '没有有效账号被添加（可能格式错误）',
+        'added': added,
+        'skipped': skipped,
+        'invalid': invalid
+    })
 
 
 @app.route('/api/accounts/<int:account_id>', methods=['PUT'])
@@ -2515,6 +2755,42 @@ def api_delete_account_by_email(email_addr):
     if delete_account_by_email(email_addr):
         return jsonify({'success': True})
     else:
+        return jsonify({'success': False, 'error': '删除失败'})
+
+
+@app.route('/api/accounts/batch-delete', methods=['POST'])
+@login_required
+def api_batch_delete_accounts():
+    """批量删除账号"""
+    data = request.json or {}
+    account_ids = data.get('account_ids', [])
+    if not account_ids or not isinstance(account_ids, list):
+        return jsonify({'success': False, 'error': '参数不完整'})
+
+    # 去重 + 过滤非法值
+    clean_ids = []
+    for acc_id in account_ids:
+        try:
+            acc_id = int(acc_id)
+        except Exception:
+            continue
+        if acc_id > 0:
+            clean_ids.append(acc_id)
+    clean_ids = list(set(clean_ids))
+
+    if not clean_ids:
+        return jsonify({'success': False, 'error': '参数不完整'})
+
+    db = get_db()
+    try:
+        placeholders = ",".join(["?"] * len(clean_ids))
+        db.execute(f'DELETE FROM account_leases WHERE account_id IN ({placeholders})', clean_ids)
+        db.execute(f'DELETE FROM account_tags WHERE account_id IN ({placeholders})', clean_ids)
+        db.execute(f'DELETE FROM account_refresh_logs WHERE account_id IN ({placeholders})', clean_ids)
+        db.execute(f'DELETE FROM accounts WHERE id IN ({placeholders})', clean_ids)
+        db.commit()
+        return jsonify({'success': True, 'deleted': len(clean_ids)})
+    except Exception:
         return jsonify({'success': False, 'error': '删除失败'})
 
 
