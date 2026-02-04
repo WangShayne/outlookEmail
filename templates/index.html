@@ -124,35 +124,6 @@
             border-color: #ccc;
         }
 
-        /* GitHub Star 按钮 */
-        .github-star-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: linear-gradient(180deg, #fafbfc 0%, #eff3f6 90%);
-            border: 1px solid rgba(27, 31, 35, 0.15);
-            color: #24292e;
-            cursor: pointer;
-            font-size: 13px;
-            font-weight: 500;
-            padding: 5px 12px;
-            border-radius: 6px;
-            transition: all 0.15s;
-            text-decoration: none;
-            box-shadow: 0 1px 0 rgba(27, 31, 35, 0.04);
-        }
-
-        .github-star-btn:hover {
-            background: linear-gradient(180deg, #f3f4f6 0%, #e9ecef 90%);
-            border-color: rgba(27, 31, 35, 0.25);
-            box-shadow: 0 1px 0 rgba(27, 31, 35, 0.1);
-        }
-
-        .github-star-btn svg {
-            width: 16px;
-            height: 16px;
-        }
-
         /* 主容器 */
         .main-container {
             display: flex;
@@ -325,10 +296,15 @@
         .search-container {
             padding: 8px 16px;
             border-bottom: 1px solid #e5e5e5;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
         }
 
         .search-input {
             width: 100%;
+            flex: 1;
             padding: 8px 12px;
             border: 1px solid #e5e5e5;
             border-radius: 6px;
@@ -339,6 +315,36 @@
 
         .search-input:focus {
             border-color: #1a1a1a;
+        }
+
+        .search-select {
+            padding: 7px 10px;
+            border: 1px solid #e5e5e5;
+            border-radius: 6px;
+            font-size: 12px;
+            color: #333;
+            background: #ffffff;
+        }
+
+        .search-cache-stats {
+            font-size: 11px;
+            color: #999;
+            width: 100%;
+        }
+
+        .search-cache-toggle {
+            border: none;
+            background: transparent;
+            color: #1a1a1a;
+            cursor: pointer;
+            font-size: 11px;
+            padding: 0;
+            margin-left: 6px;
+            text-decoration: underline;
+        }
+
+        .search-cache-toggle:hover {
+            color: #000;
         }
 
         .account-number {
@@ -366,6 +372,35 @@
         .account-panel-footer {
             padding: 16px;
             border-top: 1px solid #e5e5e5;
+        }
+
+        .account-pagination {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-top: 1px solid #e5e5e5;
+            background-color: #fafafa;
+        }
+
+        .account-pagination .page-btn {
+            background: #ffffff;
+            border: 1px solid #e5e5e5;
+            color: #333;
+            border-radius: 6px;
+            padding: 4px 10px;
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .account-pagination .page-btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        .account-pagination .page-info {
+            font-size: 12px;
+            color: #666;
         }
 
         .add-account-btn {
@@ -1445,18 +1480,6 @@ select:focus-visible {
     color: #ffffff;
 }
 
-.github-star-btn {
-    border-radius: 999px;
-    border: 1px solid var(--border);
-    background: #ffffff;
-    box-shadow: none;
-}
-
-.github-star-btn:hover {
-    border-color: rgba(13, 148, 136, 0.4);
-    background: #ffffff;
-}
-
 .main-container {
     margin: 92px 14px 14px;
     height: calc(100vh - 106px);
@@ -1701,14 +1724,6 @@ select:focus {
                 <polyline points="22,6 12,13 2,6"></polyline>
             </svg>
             Outlook 邮件
-            <a href="https://github.com/assast/outlookEmail" target="_blank" class="github-star-btn"
-                style="margin-left: 16px;">
-                <svg viewBox="0 0 16 16" fill="currentColor">
-                    <path
-                        d="M8 .25a.75.75 0 01.673.418l1.882 3.815 4.21.612a.75.75 0 01.416 1.279l-3.046 2.97.719 4.192a.75.75 0 01-1.088.791L8 12.347l-3.766 1.98a.75.75 0 01-1.088-.79l.72-4.194L.818 6.374a.75.75 0 01.416-1.28l4.21-.611L7.327.668A.75.75 0 018 .25z" />
-                </svg>
-                Star on GitHub
-            </a>
         </div>
         <div class="navbar-center">
             <div class="current-account" id="currentAccount" onclick="copyCurrentEmail()" title="点击复制邮箱地址">
@@ -1757,6 +1772,10 @@ select:focus {
             </div>
             <div class="search-container">
                 <input type="text" id="globalSearch" class="search-input" placeholder="搜索邮箱地址..." autocomplete="off">
+                <select id="searchGroupFilter" class="search-select">
+                    <option value="all">全部分组</option>
+                </select>
+                <div id="searchCacheStats" class="search-cache-stats" style="display: none;">缓存：-</div>
             </div>
             <div class="sort-control">
                 <label class="sort-label">排序：</label>
@@ -1788,6 +1807,11 @@ select:focus {
                 <div style="flex: 1;"></div>
                 <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('add')">打标签</button>
                 <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('remove')">去标签</button>
+            </div>
+            <div class="account-pagination" id="accountPagination" style="display: none;">
+                <button class="page-btn" id="accountPrevPage" onclick="changeAccountPage(-1)">上一页</button>
+                <span class="page-info" id="accountPageInfo">1/1</span>
+                <button class="page-btn" id="accountNextPage" onclick="changeAccountPage(1)">下一页</button>
             </div>
             <div class="account-panel-footer">
                 <button class="add-account-btn" onclick="showAddAccountModal()">+ 导入邮箱</button>
@@ -2225,6 +2249,9 @@ select:focus {
                     <button class="btn btn-primary" onclick="refreshAllAccounts()" id="refreshAllBtn">
                         全量刷新
                     </button>
+                    <button class="btn btn-secondary" onclick="refreshCurrentGroup()" id="refreshGroupBtn">
+                        分组刷新
+                    </button>
                     <button class="btn btn-warning" onclick="retryFailedAccounts()" id="retryFailedBtn">
                         重试失败
                     </button>
@@ -2234,6 +2261,24 @@ select:focus {
                     <button class="btn btn-secondary" onclick="loadRefreshLogs()">
                         刷新历史
                     </button>
+                </div>
+                <div
+                    style="display: flex; align-items: center; gap: 12px; margin-bottom: 16px; padding: 10px 12px; background: #f8f9fa; border: 1px solid #e5e5e5; border-radius: 8px;">
+                    <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: #333;">
+                        <input type="checkbox" id="refreshResumeToggle" checked>
+                        断点续跑
+                    </label>
+                    <span style="font-size: 12px; color: #666;">关闭则重置从头刷新</span>
+                    <button class="btn btn-sm btn-secondary" onclick="clearRefreshResumeState()">清空断点状态</button>
+                </div>
+                <div id="refreshResumeStatusBox"
+                    style="background: #fff; border: 1px solid #e5e5e5; border-radius: 8px; padding: 12px; margin-bottom: 16px;">
+                    <div style="font-size: 13px; font-weight: 600; margin-bottom: 8px; color: #333;">断点状态详情</div>
+                    <div id="resumeStatusScheduled" style="font-size: 12px; color: #555; margin-bottom: 6px;">全量刷新：-</div>
+                    <div id="resumeStatusManual" style="font-size: 12px; color: #555; margin-bottom: 6px;">接口刷新：-</div>
+                    <div id="resumeStatusGroup" style="font-size: 12px; color: #555; margin-bottom: 6px;">分组刷新：-</div>
+                    <div id="refreshHistoryRate" style="font-size: 12px; color: #666;">历史均速：-</div>
+                    <div id="refreshHistorySparkline" style="margin-top: 6px;"></div>
                 </div>
 
                 <!-- 刷新进度 -->
@@ -2262,7 +2307,7 @@ select:focus {
                         style="font-size: 14px; font-weight: 600; margin-bottom: 12px; display: flex; justify-content: space-between; align-items: center; padding: 10px; background-color: #f8f9fa; border-radius: 6px;">
                         <span style="display: flex; align-items: center; gap: 6px;">
                             <span>复制</span>
-                            <span>全量刷新历史</span>
+                            <span>刷新历史</span>
                         </span>
                         <button class="btn btn-sm btn-secondary" onclick="hideRefreshLogs()">隐藏</button>
                     </div>
@@ -2464,7 +2509,19 @@ select:focus {
         let currentFolder = 'inbox'; // 当前文件夹：inbox 或 deleteditems
         let isListVisible = true;
         let groups = [];
-        let accountsCache = {}; // 缓存各分组的邮箱列表
+        const DEFAULT_ACCOUNT_PAGE_SIZE = 100;
+        const SEARCH_CACHE_TTL_MS = 30000;
+        const SEARCH_CACHE_MAX_ENTRIES = 50;
+        const SEARCH_CACHE_GROUP_CAPACITY = 20;
+        let accountsCache = {}; // 缓存各分组的邮箱列表（仅缓存最近一页）
+        let accountsPaging = {}; // 分组分页状态
+        let searchCache = new Map();
+        let searchCacheStats = { hits: 0, misses: 0, evictions: 0 };
+        let searchCacheGroupStats = new Map();
+        let searchCacheDetailsExpanded = false;
+        let isSearchMode = false;
+        let currentSearchQuery = '';
+        let searchPaging = { offset: 0, limit: DEFAULT_ACCOUNT_PAGE_SIZE, total: 0 };
         let editingGroupId = null;
         let selectedColor = '#1a1a1a';
         let isTempEmailGroup = false; // 是否是临时邮箱分组
@@ -2530,6 +2587,17 @@ select:focus {
                     searchAccounts(e.target.value);
                 }, 300);
                 searchInput.addEventListener('input', debouncedSearch);
+            }
+            const searchGroupFilter = document.getElementById('searchGroupFilter');
+            if (searchGroupFilter) {
+                searchGroupFilter.addEventListener('change', () => {
+                    const query = searchInput ? searchInput.value : '';
+                    if (query && query.trim()) {
+                        searchAccounts(query, 0);
+                    } else if (currentGroupId && !isTempEmailGroup) {
+                        loadAccountsByGroup(currentGroupId, true, 0);
+                    }
+                });
             }
         });
 
@@ -2882,6 +2950,7 @@ ${details}
 
                     renderGroupList(data.groups);
                     updateGroupSelects();
+                    updateSearchGroupFilterOptions();
 
                     // 如果之前选中了分组，保持选中状态并刷新邮箱列表
                     if (currentGroupId) {
@@ -2943,6 +3012,7 @@ ${details}
         // 选择分组
         async function selectGroup(groupId) {
             currentGroupId = groupId;
+            isSearchMode = false;
 
             // 清空搜索框
             const searchInput = document.getElementById('globalSearch');
@@ -2978,6 +3048,11 @@ ${details}
             if (isTempEmailGroup) {
                 await loadTempEmails();
             } else {
+                if (!accountsPaging[groupId]) {
+                    accountsPaging[groupId] = { offset: 0, limit: DEFAULT_ACCOUNT_PAGE_SIZE, total: 0 };
+                } else {
+                    accountsPaging[groupId].offset = 0;
+                }
                 await loadAccountsByGroup(groupId);
             }
         }
@@ -2997,26 +3072,75 @@ ${details}
             }
         }
 
-        // 加载分组下的账号
-        async function loadAccountsByGroup(groupId, forceRefresh = false) {
+        // 获取当前选中的标签 ID 列表
+        function getSelectedTagIds() {
+            const checkedBoxes = document.querySelectorAll('.tag-filter-checkbox:checked');
+            return Array.from(checkedBoxes).map(cb => parseInt(cb.value)).filter(Boolean);
+        }
+
+        // 加载分组下的账号（分页）
+        async function loadAccountsByGroup(groupId, forceRefresh = false, offsetOverride = null) {
             const container = document.getElementById('accountList');
 
-            // 如果有缓存且不强制刷新，直接使用缓存
-            if (!forceRefresh && accountsCache[groupId]) {
-                renderAccountList(accountsCache[groupId]);
+            if (!accountsPaging[groupId]) {
+                accountsPaging[groupId] = { offset: 0, limit: DEFAULT_ACCOUNT_PAGE_SIZE, total: 0 };
+            }
+
+            if (offsetOverride !== null) {
+                accountsPaging[groupId].offset = Math.max(0, offsetOverride);
+            }
+
+            const paging = accountsPaging[groupId];
+            const tagIds = getSelectedTagIds();
+            const tagKey = tagIds.sort((a, b) => a - b).join(',');
+
+            const cached = accountsCache[groupId];
+            if (!forceRefresh && cached &&
+                cached.offset === paging.offset &&
+                cached.limit === paging.limit &&
+                cached.sortBy === currentSortBy &&
+                cached.sortOrder === currentSortOrder &&
+                cached.tagKey === tagKey
+            ) {
+                renderAccountList(cached.items, paging.offset);
+                updateAccountPaginationControls();
                 return;
             }
 
             container.innerHTML = '<div class="loading loading-small"><div class="loading-spinner"></div></div>';
 
             try {
-                const response = await fetch(`/api/accounts?group_id=${groupId}`);
+                const params = new URLSearchParams({
+                    group_id: groupId,
+                    limit: paging.limit,
+                    offset: paging.offset,
+                    sort_by: currentSortBy,
+                    sort_order: currentSortOrder
+                });
+                if (tagIds.length > 0) {
+                    params.append('tag_ids', tagIds.join(','));
+                }
+
+                const response = await fetch(`/api/accounts?${params.toString()}`);
                 const data = await response.json();
 
                 if (data.success) {
-                    // 缓存数据
-                    accountsCache[groupId] = data.accounts;
-                    renderAccountList(data.accounts);
+                    if (data.accounts.length === 0 && paging.offset > 0 && (data.total || 0) > 0) {
+                        const newOffset = Math.max(0, paging.offset - paging.limit);
+                        return loadAccountsByGroup(groupId, true, newOffset);
+                    }
+                    paging.total = data.total || 0;
+                    accountsCache[groupId] = {
+                        items: data.accounts,
+                        total: paging.total,
+                        limit: paging.limit,
+                        offset: paging.offset,
+                        sortBy: currentSortBy,
+                        sortOrder: currentSortOrder,
+                        tagKey
+                    };
+                    renderAccountList(data.accounts, paging.offset);
+                    updateAccountPaginationControls();
                 }
             } catch (error) {
                 container.innerHTML = '<div class="empty-state"><div class="empty-state-text">加载失败</div></div>';
@@ -3024,7 +3148,7 @@ ${details}
         }
 
         // 渲染邮箱列表
-        function renderAccountList(accounts) {
+        function renderAccountList(accounts, startIndex = 0) {
             const container = document.getElementById('accountList');
 
             if (accounts.length === 0) {
@@ -3046,7 +3170,7 @@ ${details}
                                style="margin-top: 6px; cursor: pointer;">
                         <div style="flex: 1; min-width: 0;">
                             <div class="account-email" title="${escapeHtml(acc.email)}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; ${acc.last_refresh_status === 'failed' ? 'color: #dc3545; font-weight: 700;' : ''}">
-                                <span class="account-number">${index + 1}.</span> ${escapeHtml(acc.email)}
+                                <span class="account-number">${startIndex + index + 1}.</span> ${escapeHtml(acc.email)}
                                 ${acc.status === 'inactive' ? '<span class="account-status-tag">已停用</span>' : ''}
                             </div>
                             ${acc.remark && acc.remark.trim() ? `<div class="account-remark" title="${escapeHtml(acc.remark)}">备注 ${escapeHtml(acc.remark)}</div>` : ''}
@@ -3105,10 +3229,11 @@ ${details}
                 activeBtn.style.borderColor = '#1a1a1a';
             }
 
-            // 重新加载并排序账号列表
-            if (accountsCache[currentGroupId]) {
-                const sortedAccounts = applyFiltersAndSort(accountsCache[currentGroupId]);
-                renderAccountList(sortedAccounts);
+            // 重新加载并排序账号列表（服务器分页）
+            if (isSearchMode && currentSearchQuery) {
+                searchAccounts(currentSearchQuery, 0);
+            } else if (currentGroupId && !isTempEmailGroup) {
+                loadAccountsByGroup(currentGroupId, true, 0);
             }
         }
 
@@ -3148,10 +3273,74 @@ ${details}
 
         // Tag Filter Change Handler
         function handleTagFilterChange() {
-            if (accountsCache[currentGroupId]) {
-                const filteredAccounts = applyFiltersAndSort(accountsCache[currentGroupId]);
-                renderAccountList(filteredAccounts);
+            if (isSearchMode && currentSearchQuery) {
+                searchAccounts(currentSearchQuery, 0);
+                return;
             }
+            if (currentGroupId && !isTempEmailGroup) {
+                loadAccountsByGroup(currentGroupId, true, 0);
+            }
+        }
+
+        function updateAccountPaginationControls() {
+            const pagination = document.getElementById('accountPagination');
+            if (!pagination) return;
+
+            if (isTempEmailGroup) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            const paging = isSearchMode
+                ? searchPaging
+                : (currentGroupId ? accountsPaging[currentGroupId] : null);
+
+            if (!paging) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            const total = paging.total || 0;
+            const limit = paging.limit || DEFAULT_ACCOUNT_PAGE_SIZE;
+            const offset = paging.offset || 0;
+
+            if (total <= limit) {
+                pagination.style.display = 'none';
+                return;
+            }
+
+            pagination.style.display = 'flex';
+
+            const totalPages = Math.max(1, Math.ceil(total / limit));
+            const currentPage = Math.min(totalPages, Math.floor(offset / limit) + 1);
+            const start = total === 0 ? 0 : offset + 1;
+            const end = Math.min(offset + limit, total);
+
+            const info = document.getElementById('accountPageInfo');
+            if (info) {
+                info.textContent = `${currentPage}/${totalPages} · ${start}-${end} / ${total}`;
+            }
+
+            const prevBtn = document.getElementById('accountPrevPage');
+            const nextBtn = document.getElementById('accountNextPage');
+            if (prevBtn) prevBtn.disabled = offset <= 0;
+            if (nextBtn) nextBtn.disabled = offset + limit >= total;
+        }
+
+        function changeAccountPage(delta) {
+            if (isSearchMode) {
+                const paging = searchPaging;
+                const nextOffset = paging.offset + (delta * paging.limit);
+                if (nextOffset < 0 || nextOffset >= paging.total) return;
+                searchAccounts(currentSearchQuery, nextOffset);
+                return;
+            }
+
+            if (!currentGroupId || !accountsPaging[currentGroupId]) return;
+            const paging = accountsPaging[currentGroupId];
+            const nextOffset = paging.offset + (delta * paging.limit);
+            if (nextOffset < 0 || nextOffset >= paging.total) return;
+            loadAccountsByGroup(currentGroupId, false, nextOffset);
         }
 
         // 防抖函数
@@ -3164,24 +3353,79 @@ ${details}
         }
 
         // 全局搜索函数
-        async function searchAccounts(query) {
+        async function searchAccounts(query, offsetOverride = null) {
             const container = document.getElementById('accountList');
             const titleElement = document.getElementById('currentGroupName');
 
             if (!query.trim()) {
-                loadAccountsByGroup(currentGroupId);
+                isSearchMode = false;
+                currentSearchQuery = '';
+                searchPaging = { offset: 0, limit: DEFAULT_ACCOUNT_PAGE_SIZE, total: 0 };
+                updateAccountPaginationControls();
+                updateSearchCacheStatsDisplay();
+                loadAccountsByGroup(currentGroupId, true, 0);
                 return;
             }
 
+            isSearchMode = true;
+            if (currentSearchQuery !== query) {
+                searchPaging.offset = 0;
+            }
+            currentSearchQuery = query;
+
+            if (offsetOverride !== null) {
+                searchPaging.offset = Math.max(0, offsetOverride);
+            }
+
+            updateAccountPaginationControls();
             container.innerHTML = '<div class="loading loading-small"><div class="loading-spinner"></div></div>';
 
             try {
-                const response = await fetch(`/api/accounts/search?q=${encodeURIComponent(query)}`);
+                const cacheKey = buildSearchCacheKey(query, searchPaging.offset);
+                const cached = getSearchCache(cacheKey);
+                if (cached) {
+                    searchPaging.total = cached.total || 0;
+                    titleElement.textContent = `搜索结果 (${searchPaging.total})`;
+                    renderAccountList(cached.accounts, searchPaging.offset);
+                    updateAccountPaginationControls();
+                    updateSearchCacheStatsDisplay();
+                    return;
+                }
+
+                const params = new URLSearchParams({
+                    q: query,
+                    limit: searchPaging.limit,
+                    offset: searchPaging.offset,
+                    sort_by: currentSortBy,
+                    sort_order: currentSortOrder
+                });
+                const tagIds = getSelectedTagIds();
+                if (tagIds.length > 0) {
+                    params.append('tag_ids', tagIds.join(','));
+                }
+                const groupFilterId = getSearchGroupFilterId();
+                if (groupFilterId) {
+                    params.append('group_id', String(groupFilterId));
+                }
+                const response = await fetch(`/api/accounts/search?${params.toString()}`);
                 const data = await response.json();
 
                 if (data.success) {
-                    titleElement.textContent = `搜索结果 (${data.accounts.length})`;
-                    renderAccountList(data.accounts);
+                    searchPaging.total = data.total || 0;
+
+                    if (data.accounts.length === 0 && searchPaging.offset > 0 && searchPaging.total > 0) {
+                        const newOffset = Math.max(0, searchPaging.offset - searchPaging.limit);
+                        return searchAccounts(query, newOffset);
+                    }
+
+                    const groupFilterId = getSearchGroupFilterId();
+                    const groupKey = buildSearchCacheGroupKey(groupFilterId);
+                    setSearchCache(cacheKey, { accounts: data.accounts, total: searchPaging.total, groupKey });
+                    enforceSearchCacheGroupCapacity(groupFilterId);
+                    titleElement.textContent = `搜索结果 (${searchPaging.total})`;
+                    renderAccountList(data.accounts, searchPaging.offset);
+                    updateAccountPaginationControls();
+                    updateSearchCacheStatsDisplay();
                 } else {
                     container.innerHTML = '<div class="empty-state"><div class="empty-state-text">搜索失败</div></div>';
                 }
@@ -3214,6 +3458,199 @@ ${details}
                     }
                 }
             });
+        }
+
+        function updateSearchGroupFilterOptions() {
+            const select = document.getElementById('searchGroupFilter');
+            if (!select) return;
+
+            const currentValue = select.value || 'all';
+            const selectableGroups = groups.filter(g => g.name !== '临时邮箱');
+            const options = [
+                '<option value="all">全部分组</option>',
+                ...selectableGroups.map(g => `<option value="${g.id}">${escapeHtml(g.name)}</option>`)
+            ];
+            select.innerHTML = options.join('');
+
+            const validValues = new Set(['all', ...selectableGroups.map(g => String(g.id))]);
+            select.value = validValues.has(String(currentValue)) ? currentValue : 'all';
+        }
+
+        function getSearchGroupFilterId() {
+            const select = document.getElementById('searchGroupFilter');
+            if (!select) return null;
+            const value = select.value;
+            if (!value || value === 'all') return null;
+            const parsed = parseInt(value, 10);
+            return Number.isNaN(parsed) ? null : parsed;
+        }
+
+        function updateSearchCacheStatsDisplay() {
+            const el = document.getElementById('searchCacheStats');
+            if (!el) return;
+
+            if (!isSearchMode) {
+                el.style.display = 'none';
+                return;
+            }
+
+            const hits = searchCacheStats.hits || 0;
+            const misses = searchCacheStats.misses || 0;
+            const evictions = searchCacheStats.evictions || 0;
+            const total = hits + misses;
+            const hitRate = total > 0 ? Math.round((hits / total) * 100) : 0;
+
+            const groupFilterId = getSearchGroupFilterId();
+            const currentGroupKey = buildSearchCacheGroupKey(groupFilterId);
+            const currentGroupName = getGroupNameById(currentGroupKey);
+            const currentGroupStats = searchCacheGroupStats.get(currentGroupKey) || { hits: 0, misses: 0, evictions: 0 };
+            const currentTotal = currentGroupStats.hits + currentGroupStats.misses;
+            const currentRate = currentTotal > 0 ? Math.round((currentGroupStats.hits / currentTotal) * 100) : 0;
+
+            const groupEntries = Array.from(searchCacheGroupStats.entries())
+                .map(([key, stats]) => {
+                    const t = stats.hits + stats.misses;
+                    const rate = t > 0 ? stats.hits / t : 0;
+                    return { key, stats, rate, total: t };
+                })
+                .filter(item => item.total > 0)
+                .sort((a, b) => b.total - a.total);
+
+            const breakdownParts = groupEntries.map(item => {
+                const name = getGroupNameById(item.key);
+                const rate = Math.round(item.rate * 100);
+                return `${name} ${rate}% (${item.stats.hits}/${item.stats.misses})`;
+            });
+
+            const groupLine = `当前分组 ${currentGroupName}：命中 ${currentGroupStats.hits} / 未命中 ${currentGroupStats.misses} / 命中率 ${currentRate}%`;
+            let breakdownLine = '';
+            if (breakdownParts.length > 0) {
+                const maxCollapsed = 3;
+                const showToggle = breakdownParts.length > maxCollapsed;
+                const shownParts = searchCacheDetailsExpanded || !showToggle
+                    ? breakdownParts
+                    : breakdownParts.slice(0, maxCollapsed);
+                const remaining = breakdownParts.length - shownParts.length;
+                const suffix = (!searchCacheDetailsExpanded && remaining > 0)
+                    ? ` 等${remaining}个`
+                    : '';
+                const toggleLabel = searchCacheDetailsExpanded ? '收起' : `展开(${breakdownParts.length})`;
+                const toggleBtn = showToggle
+                    ? ` <button class="search-cache-toggle" onclick="toggleSearchCacheDetails()">${toggleLabel}</button>`
+                    : '';
+                breakdownLine = `分组细分：${shownParts.join('，')}${suffix}${toggleBtn}`;
+            }
+
+            el.style.display = 'block';
+            el.innerHTML = `
+                缓存命中 ${hits} / 未命中 ${misses} / 淘汰 ${evictions} / 命中率 ${hitRate}%<br>
+                ${groupLine}${breakdownLine ? `<br>${breakdownLine}` : ''}
+            `;
+        }
+
+        function toggleSearchCacheDetails() {
+            searchCacheDetailsExpanded = !searchCacheDetailsExpanded;
+            updateSearchCacheStatsDisplay();
+        }
+
+        function buildSearchCacheKey(query, offset) {
+            const tagIds = getSelectedTagIds().slice().sort((a, b) => a - b);
+            const groupFilterId = getSearchGroupFilterId();
+            return JSON.stringify({
+                q: query,
+                offset,
+                limit: searchPaging.limit,
+                sortBy: currentSortBy,
+                sortOrder: currentSortOrder,
+                tagIds,
+                groupId: groupFilterId
+            });
+        }
+
+        function buildSearchCacheGroupKey(groupId) {
+            return groupId === null ? 'all' : String(groupId);
+        }
+
+        function getGroupNameById(groupId) {
+            if (groupId === 'all') return '全部';
+            const id = parseInt(groupId, 10);
+            const group = groups.find(g => g.id === id);
+            return group ? group.name : groupId;
+        }
+
+        function updateSearchGroupStats(groupKey, field) {
+            if (!groupKey) return;
+            const stats = searchCacheGroupStats.get(groupKey) || { hits: 0, misses: 0, evictions: 0 };
+            stats[field] += 1;
+            searchCacheGroupStats.set(groupKey, stats);
+        }
+
+        function getSearchCache(key) {
+            const cached = searchCache.get(key);
+            if (!cached) return null;
+            if (Date.now() - cached.ts > SEARCH_CACHE_TTL_MS) {
+                searchCache.delete(key);
+                return null;
+            }
+            // LRU: 访问后刷新顺序
+            searchCache.delete(key);
+            searchCache.set(key, cached);
+            searchCacheStats.hits += 1;
+            updateSearchGroupStats(cached.groupKey, 'hits');
+            return cached;
+        }
+
+        function setSearchCache(key, payload) {
+            searchCacheStats.misses += 1;
+            updateSearchGroupStats(payload.groupKey, 'misses');
+            if (searchCache.has(key)) {
+                searchCache.delete(key);
+            }
+            searchCache.set(key, { ...payload, ts: Date.now() });
+            if (searchCache.size > SEARCH_CACHE_MAX_ENTRIES) {
+                const oldestKey = searchCache.keys().next().value;
+                if (oldestKey) {
+                    const evicted = searchCache.get(oldestKey);
+                    searchCache.delete(oldestKey);
+                    searchCacheStats.evictions += 1;
+                    if (evicted && evicted.groupKey) {
+                        updateSearchGroupStats(evicted.groupKey, 'evictions');
+                    }
+                }
+            }
+        }
+
+        function enforceSearchCacheGroupCapacity(groupId) {
+            const groupKey = buildSearchCacheGroupKey(groupId);
+            let count = 0;
+            const candidates = [];
+            for (const [key, value] of searchCache.entries()) {
+                if (value && value.groupKey === groupKey) {
+                    count += 1;
+                    candidates.push(key);
+                }
+            }
+            if (count <= SEARCH_CACHE_GROUP_CAPACITY) return;
+
+            let toEvict = count - SEARCH_CACHE_GROUP_CAPACITY;
+            for (const key of candidates) {
+                if (toEvict <= 0) break;
+                searchCache.delete(key);
+                searchCacheStats.evictions += 1;
+                updateSearchGroupStats(groupKey, 'evictions');
+                toEvict -= 1;
+            }
+        }
+
+        function invalidateAccountCaches(groupId = null) {
+            if (groupId === null) {
+                accountsCache = {};
+            } else {
+                delete accountsCache[groupId];
+            }
+            searchCache.clear();
+            searchCacheStats = { hits: 0, misses: 0, evictions: 0 };
+            searchCacheGroupStats = new Map();
         }
 
         // 显示添加分组模态框
@@ -3296,6 +3733,7 @@ ${details}
                 if (data.success) {
                     showToast(data.message, 'success');
                     hideAddGroupModal();
+                    invalidateAccountCaches();
                     loadGroups();
                 } else {
                     handleApiError(data, '保存分组失败');
@@ -3318,7 +3756,7 @@ ${details}
                 if (data.success) {
                     showToast(data.message, 'success');
                     // 清除缓存
-                    delete accountsCache[groupId];
+                    invalidateAccountCaches(groupId);
                     // 如果删除的是当前选中的分组，切换到默认分组
                     if (currentGroupId === groupId) {
                         currentGroupId = 1;
@@ -3340,6 +3778,7 @@ ${details}
 
             if (!forceRefresh && accountsCache['temp']) {
                 renderTempEmailList(accountsCache['temp']);
+                updateAccountPaginationControls();
                 return;
             }
 
@@ -3352,6 +3791,7 @@ ${details}
                 if (data.success) {
                     accountsCache['temp'] = data.emails;
                     renderTempEmailList(data.emails);
+                    updateAccountPaginationControls();
 
                     const group = groups.find(g => g.name === '临时邮箱');
                     if (group) {
@@ -3414,7 +3854,7 @@ ${details}
 
                 if (data.success) {
                     showToast(`临时邮箱已生成: ${data.email}`, 'success');
-                    delete accountsCache['temp'];
+                    invalidateAccountCaches();
                     loadTempEmails(true);
                     loadGroups();
                 } else {
@@ -3528,7 +3968,7 @@ ${details}
 
                 if (data.success) {
                     showToast('临时邮箱已删除', 'success');
-                    delete accountsCache['temp'];
+                    invalidateAccountCaches();
 
                     if (currentAccount === email) {
                         currentAccount = null;
@@ -3753,7 +4193,7 @@ ${details}
                     hideAddAccountModal();
 
                     // 清除该分组的缓存
-                    delete accountsCache[groupId];
+                    invalidateAccountCaches(groupId);
 
                     // 刷新分组列表（更新数量）
                     loadGroups();
@@ -3833,9 +4273,9 @@ ${details}
                     hideEditAccountModal();
 
                     // 清除相关分组的缓存
-                    delete accountsCache[oldGroupId];
+                    invalidateAccountCaches(oldGroupId);
                     if (oldGroupId !== newGroupId) {
-                        delete accountsCache[newGroupId];
+                        invalidateAccountCaches(newGroupId);
                     }
 
                     // 刷新分组列表
@@ -3872,7 +4312,7 @@ ${details}
                     hideEditAccountModal();
 
                     // 清除缓存
-                    delete accountsCache[groupId];
+                    invalidateAccountCaches(groupId);
 
                     if (currentAccount === email) {
                         currentAccount = null;
@@ -3923,7 +4363,7 @@ ${details}
 
                     // 清除当前分组的缓存
                     if (currentGroupId) {
-                        delete accountsCache[currentGroupId];
+                        invalidateAccountCaches(currentGroupId);
                         loadAccountsByGroup(currentGroupId, true);
                     }
                 } else {
@@ -3949,7 +4389,7 @@ ${details}
 
                     // 清除当前分组的缓存
                     if (currentGroupId) {
-                        delete accountsCache[currentGroupId];
+                        invalidateAccountCaches(currentGroupId);
                     }
 
                     if (currentAccount === email) {
@@ -5126,6 +5566,7 @@ ${details}
             document.getElementById('refreshModal').classList.add('show');
             // 加载统计数据
             await loadRefreshStats();
+            await loadRefreshResumeStatus();
             // 自动加载失败列表（如果有失败记录）
             await autoLoadFailedListIfNeeded();
         }
@@ -5175,6 +5616,12 @@ ${details}
                 refreshAllBtn.textContent = '全量刷新';
             }
 
+            const refreshGroupBtn = document.getElementById('refreshGroupBtn');
+            if (refreshGroupBtn) {
+                refreshGroupBtn.disabled = false;
+                refreshGroupBtn.textContent = '分组刷新';
+            }
+
             const retryFailedBtn = document.getElementById('retryFailedBtn');
             if (retryFailedBtn) {
                 retryFailedBtn.disabled = false;
@@ -5213,11 +5660,293 @@ ${details}
             }
         }
 
+        function formatResumeStateLine(state, label) {
+            if (!state) {
+                return `${label}：暂无断点状态`;
+            }
+            const statusMap = {
+                running: '运行中',
+                completed: '已完成'
+            };
+            const statusText = statusMap[state.status] || '未知';
+            const staleTag = state.stale ? '（过期）' : '';
+            const processed = typeof state.processed === 'number' ? state.processed : '-';
+            const total = typeof state.total === 'number' ? state.total : '-';
+            const remaining = typeof state.remaining === 'number' ? state.remaining : '-';
+            const updated = state.updated_at ? formatDateTime(state.updated_at) : '-';
+            let estimateText = '';
+            let rateText = '';
+            let durationText = '';
+
+            if (typeof state.duration_seconds === 'number' && state.duration_seconds > 0 && state.status === 'completed') {
+                durationText = `，耗时 ${formatDuration(state.duration_seconds)}`;
+            }
+
+            if (typeof state.avg_rate === 'number' && state.avg_rate > 0 && state.status === 'completed') {
+                const perMin = state.avg_rate * 60;
+                rateText = `，历史均速 ${perMin.toFixed(1)} 账号/分钟`;
+            }
+
+            if (state.status === 'running' && !state.stale) {
+                const startedAt = state.started_at ? new Date(state.started_at) : null;
+                const updatedAt = state.updated_at ? new Date(state.updated_at) : null;
+                if (startedAt && updatedAt && typeof state.processed === 'number' && state.processed > 0 &&
+                    typeof state.total === 'number' && state.total > 0) {
+                    const elapsedSeconds = Math.max(1, (updatedAt - startedAt) / 1000);
+                    const rate = state.processed / elapsedSeconds;
+                    const remainCount = Math.max(0, state.total - state.processed);
+                    if (rate > 0 && remainCount > 0) {
+                        const etaSeconds = remainCount / rate;
+                        estimateText = `，预计剩余 ${formatDuration(etaSeconds)}`;
+                    }
+                    if (rate > 0) {
+                        const perMin = rate * 60;
+                        rateText = `，当前均速 ${perMin.toFixed(1)} 账号/分钟`;
+                    }
+                }
+            }
+            return `${label}：状态 ${statusText}${staleTag}，进度 ${processed}/${total}，剩余 ${remaining}，更新时间 ${updated}${durationText}${rateText}${estimateText}`;
+        }
+
+        function formatDuration(seconds) {
+            if (!seconds || seconds <= 0) return '0秒';
+            const total = Math.ceil(seconds);
+            const hrs = Math.floor(total / 3600);
+            const mins = Math.floor((total % 3600) / 60);
+            const secs = total % 60;
+
+            if (hrs > 0) {
+                return `${hrs}小时${mins}分钟`;
+            }
+            if (mins > 0) {
+                return `${mins}分钟${secs}秒`;
+            }
+            return `${secs}秒`;
+        }
+
+        function renderSparkline(values, width = 160, height = 36) {
+            if (!values || values.length < 2) return '';
+            const min = Math.min(...values);
+            const max = Math.max(...values);
+            const range = max - min || 1;
+            const padding = 2;
+            const points = values.map((v, i) => {
+                const x = padding + (i / (values.length - 1)) * (width - padding * 2);
+                const y = height - padding - ((v - min) / range) * (height - padding * 2);
+                return `${x.toFixed(1)},${y.toFixed(1)}`;
+            }).join(' ');
+
+            return `
+                <svg width="${width}" height="${height}" viewBox="0 0 ${width} ${height}" xmlns="http://www.w3.org/2000/svg">
+                    <polyline fill="none" stroke="#0f766e" stroke-width="2" points="${points}" />
+                </svg>
+            `;
+        }
+
+        function buildRefreshSpeedLine(data) {
+            const parts = [];
+            if (typeof data.rate_per_min === 'number' && data.rate_per_min > 0) {
+                parts.push(`速度: <strong>${data.rate_per_min.toFixed(1)}</strong> 账号/分钟`);
+            }
+            if (typeof data.eta_seconds === 'number' && data.eta_seconds > 0) {
+                parts.push(`预计剩余: <strong>${formatDuration(data.eta_seconds)}</strong>`);
+            }
+            if (parts.length === 0) return '';
+            return `<br><span style="color:#666;">${parts.join(' | ')}</span>`;
+        }
+
+        function startRefreshStream(options) {
+            const {
+                url,
+                label,
+                activeButton,
+                updateLastRefreshTime = false
+            } = options;
+
+            const progress = document.getElementById('refreshProgress');
+            const progressText = document.getElementById('refreshProgressText');
+            const refreshAllBtn = document.getElementById('refreshAllBtn');
+            const refreshGroupBtn = document.getElementById('refreshGroupBtn');
+
+            if (activeButton) {
+                activeButton.disabled = true;
+                activeButton.textContent = `${label}中...`;
+            }
+            if (refreshAllBtn && refreshAllBtn !== activeButton) refreshAllBtn.disabled = true;
+            if (refreshGroupBtn && refreshGroupBtn !== activeButton) refreshGroupBtn.disabled = true;
+
+            progress.style.display = 'block';
+            progressText.innerHTML = '正在初始化...';
+
+            const eventSource = new EventSource(url);
+            let totalCount = 0;
+            let successCount = 0;
+            let failedCount = 0;
+
+            const resetButtons = () => {
+                if (activeButton) {
+                    activeButton.disabled = false;
+                    activeButton.textContent = label;
+                }
+                if (refreshAllBtn) refreshAllBtn.disabled = false;
+                if (refreshGroupBtn) refreshGroupBtn.disabled = false;
+            };
+
+            eventSource.onmessage = function (event) {
+                try {
+                    const data = JSON.parse(event.data);
+
+                    if (data.type === 'start') {
+                        const skipped = data.skipped || 0;
+                        totalCount = data.resumed ? (data.total + skipped) : data.total;
+                        const delayInfo = data.delay_seconds > 0 ? `（间隔 ${data.delay_seconds} 秒）` : '';
+                        const resumeInfo = data.resumed
+                            ? `断点续跑：是（已跳过 ${skipped} 个）`
+                            : '断点续跑：否（从头开始）';
+                        const remainingInfo = data.resumed
+                            ? `本次处理 <strong>${data.total}</strong> 个（总计 ${totalCount}）`
+                            : `总共 <strong>${totalCount}</strong> 个账号`;
+                        const perfInfo = data.max_workers
+                            ? `并发 ${data.max_workers} · 批次 ${data.batch_size}`
+                            : '';
+                        const headerLabel = data.group_name ? `${label}（${data.group_name}）` : label;
+                        progressText.innerHTML = `${headerLabel}：${remainingInfo}${delayInfo}${perfInfo ? `，${perfInfo}` : ''}，准备开始刷新...<br><span style="color:#1976d2;">${resumeInfo}</span>`;
+                        // 初始化统计
+                        document.getElementById('totalRefreshCount').textContent = totalCount;
+                        document.getElementById('successRefreshCount').textContent = '0';
+                        document.getElementById('failedRefreshCount').textContent = '0';
+                    } else if (data.type === 'progress') {
+                        successCount = data.success_count;
+                        failedCount = data.failed_count;
+                        // 实时更新统计
+                        document.getElementById('successRefreshCount').textContent = successCount;
+                        document.getElementById('failedRefreshCount').textContent = failedCount;
+                        const current = data.current || 0;
+                        const total = data.total || totalCount;
+                        const speedLine = buildRefreshSpeedLine(data);
+                        progressText.innerHTML = `
+                            正在处理: <strong>${data.email}</strong><br>
+                            进度: <strong>${current}/${total}</strong> |
+                            成功: <strong style="color: #28a745;">${successCount}</strong> |
+                            失败: <strong style="color: #dc3545;">${failedCount}</strong>
+                            ${speedLine}
+                        `;
+                    } else if (data.type === 'delay') {
+                        progressText.innerHTML += `<br><span style="color: #999;">等待 ${data.seconds} 秒后继续...</span>`;
+                    } else if (data.type === 'complete') {
+                        eventSource.close();
+                        progress.style.display = 'none';
+                        resetButtons();
+
+                        if (updateLastRefreshTime) {
+                            const now = new Date();
+                            window.lastRefreshTime = now;
+                            document.getElementById('lastRefreshTime').textContent = '刚刚';
+                        }
+                        document.getElementById('totalRefreshCount').textContent = data.total;
+                        document.getElementById('successRefreshCount').textContent = data.success_count;
+                        document.getElementById('failedRefreshCount').textContent = data.failed_count;
+
+                        const durationInfo = (typeof data.duration_seconds === 'number' && data.duration_seconds > 0)
+                            ? `，耗时 ${formatDuration(data.duration_seconds)}`
+                            : '';
+                        showToast(`刷新完成！成功: ${data.success_count}, 失败: ${data.failed_count}${durationInfo}`,
+                            data.failed_count > 0 ? 'warning' : 'success');
+
+                        if (data.failed_count > 0) {
+                            showFailedListFromData(data.failed_list);
+                        }
+
+                        if (currentGroupId) {
+                            loadAccountsByGroup(currentGroupId, true);
+                        }
+                        loadRefreshResumeStatus();
+                    }
+                } catch (e) {
+                    console.error('解析进度数据失败:', e);
+                }
+            };
+
+            eventSource.onerror = function (error) {
+                console.error('EventSource 错误:', error);
+                eventSource.close();
+                progress.style.display = 'none';
+                resetButtons();
+                showToast('刷新过程中出现错误', 'error');
+            };
+        }
+
+        async function loadRefreshResumeStatus() {
+            try {
+                const params = new URLSearchParams();
+                if (currentGroupId && !isTempEmailGroup) {
+                    params.append('group_id', String(currentGroupId));
+                }
+                const url = params.toString()
+                    ? `/api/accounts/refresh-resume/status?${params.toString()}`
+                    : '/api/accounts/refresh-resume/status';
+                const response = await fetch(url);
+                const data = await response.json();
+                if (!data.success) return;
+
+                const scheduledLine = formatResumeStateLine(data.scheduled, '全量刷新');
+                const manualLine = formatResumeStateLine(data.manual, '接口刷新');
+                let groupLine = '分组刷新：请选择分组';
+                if (currentGroupId) {
+                    if (isTempEmailGroup) {
+                        groupLine = '分组刷新：临时邮箱不支持';
+                    } else {
+                        const groupLabel = data.group_name ? `分组刷新（${data.group_name}）` : '分组刷新';
+                        groupLine = data.group ? formatResumeStateLine(data.group, groupLabel) : `${groupLabel}：暂无断点状态`;
+                    }
+                }
+
+                const scheduledEl = document.getElementById('resumeStatusScheduled');
+                const manualEl = document.getElementById('resumeStatusManual');
+                const groupEl = document.getElementById('resumeStatusGroup');
+                if (scheduledEl) scheduledEl.textContent = scheduledLine;
+                if (manualEl) manualEl.textContent = manualLine;
+                if (groupEl) groupEl.textContent = groupLine;
+
+                const historyEl = document.getElementById('refreshHistoryRate');
+                if (historyEl) {
+                    const historyItems = (data.history_rates || []).filter(item => typeof item.avg_rate === 'number' && item.avg_rate > 0);
+                    const rates = historyItems.map(item => item.avg_rate);
+                    if (!rates.length) {
+                        historyEl.textContent = '历史均速：-';
+                        const sparkEl = document.getElementById('refreshHistorySparkline');
+                        if (sparkEl) sparkEl.innerHTML = '';
+                    } else {
+                        const avgRate = rates.reduce((sum, r) => sum + r, 0) / rates.length;
+                        const perMin = avgRate * 60;
+                        let trend = '';
+                        if (rates.length >= 2) {
+                            if (rates[0] > rates[1] * 1.1) trend = '（上升）';
+                            else if (rates[0] < rates[1] * 0.9) trend = '（下降）';
+                            else trend = '（持平）';
+                        }
+                        historyEl.textContent = `历史均速（最近${rates.length}次）：${perMin.toFixed(1)} 账号/分钟 ${trend}`;
+
+                        const sparkValues = historyItems
+                            .slice()
+                            .reverse()
+                            .map(item => item.avg_rate * 60);
+                        const sparkEl = document.getElementById('refreshHistorySparkline');
+                        if (sparkEl) {
+                            sparkEl.innerHTML = renderSparkline(sparkValues);
+                        }
+                    }
+                }
+            } catch (error) {
+                console.error('加载断点状态失败:', error);
+            }
+        }
+
         // 全量刷新所有账号
         async function refreshAllAccounts() {
             const btn = document.getElementById('refreshAllBtn');
-            const progress = document.getElementById('refreshProgress');
-            const progressText = document.getElementById('refreshProgressText');
+            const resumeToggle = document.getElementById('refreshResumeToggle');
+            const resumeEnabled = resumeToggle ? resumeToggle.checked : true;
 
             if (btn.disabled) return;
 
@@ -5225,89 +5954,72 @@ ${details}
                 return;
             }
 
-            btn.disabled = true;
-            btn.textContent = '刷新中...';
-            progress.style.display = 'block';
-            progressText.innerHTML = '正在初始化...';
+            try {
+                startRefreshStream({
+                    url: `/api/accounts/trigger-scheduled-refresh?force=true&resume=${resumeEnabled ? 'true' : 'false'}`,
+                    label: '全量刷新',
+                    activeButton: btn,
+                    updateLastRefreshTime: true
+                });
+            } catch (error) {
+                showToast('刷新请求失败', 'error');
+            }
+        }
+
+        async function refreshCurrentGroup() {
+            const btn = document.getElementById('refreshGroupBtn');
+            const resumeToggle = document.getElementById('refreshResumeToggle');
+            const resumeEnabled = resumeToggle ? resumeToggle.checked : true;
+
+            if (btn.disabled) return;
+
+            if (!currentGroupId || isTempEmailGroup) {
+                showToast('请选择非临时邮箱分组', 'info');
+                return;
+            }
+
+            const group = groups.find(g => g.id === currentGroupId);
+            const groupName = group ? group.name : '当前分组';
+            if (!confirm(`确定要刷新分组 "${groupName}" 的 Token 吗？`)) {
+                return;
+            }
 
             try {
-                const eventSource = new EventSource('/api/accounts/trigger-scheduled-refresh?force=true');
-                let totalCount = 0;
-                let successCount = 0;
-                let failedCount = 0;
-
-                eventSource.onmessage = function (event) {
-                    try {
-                        const data = JSON.parse(event.data);
-
-                        if (data.type === 'start') {
-                            totalCount = data.total;
-                            const delayInfo = data.delay_seconds > 0 ? `（间隔 ${data.delay_seconds} 秒）` : '';
-                            progressText.innerHTML = `总共 <strong>${totalCount}</strong> 个账号${delayInfo}，准备开始刷新...`;
-                            // 初始化统计
-                            document.getElementById('totalRefreshCount').textContent = totalCount;
-                            document.getElementById('successRefreshCount').textContent = '0';
-                            document.getElementById('failedRefreshCount').textContent = '0';
-                        } else if (data.type === 'progress') {
-                            successCount = data.success_count;
-                            failedCount = data.failed_count;
-                            // 实时更新统计
-                            document.getElementById('successRefreshCount').textContent = successCount;
-                            document.getElementById('failedRefreshCount').textContent = failedCount;
-                            progressText.innerHTML = `
-                                正在处理: <strong>${data.email}</strong><br>
-                                进度: <strong>${data.current}/${data.total}</strong> |
-                                成功: <strong style="color: #28a745;">${successCount}</strong> |
-                                失败: <strong style="color: #dc3545;">${failedCount}</strong>
-                            `;
-                        } else if (data.type === 'delay') {
-                            progressText.innerHTML += `<br><span style="color: #999;">等待 ${data.seconds} 秒后继续...</span>`;
-                        } else if (data.type === 'complete') {
-                            eventSource.close();
-                            progress.style.display = 'none';
-                            btn.disabled = false;
-                            btn.textContent = '全量刷新';
-
-                            // 直接更新统计数据，使用本地时间
-                            const now = new Date();
-                            window.lastRefreshTime = now; // 保存刷新时间
-                            document.getElementById('lastRefreshTime').textContent = '刚刚';
-                            document.getElementById('totalRefreshCount').textContent = data.total;
-                            document.getElementById('successRefreshCount').textContent = data.success_count;
-                            document.getElementById('failedRefreshCount').textContent = data.failed_count;
-
-                            showToast(`刷新完成！成功: ${data.success_count}, 失败: ${data.failed_count}`,
-                                data.failed_count > 0 ? 'warning' : 'success');
-
-                            // 如果有失败的，显示失败列表
-                            if (data.failed_count > 0) {
-                                showFailedListFromData(data.failed_list);
-                            }
-
-                            // 刷新账号列表以更新刷新时间
-                            if (currentGroupId) {
-                                loadAccountsByGroup(currentGroupId, true);
-                            }
-                        }
-                    } catch (e) {
-                        console.error('解析进度数据失败:', e);
-                    }
-                };
-
-                eventSource.onerror = function (error) {
-                    console.error('EventSource 错误:', error);
-                    eventSource.close();
-                    progress.style.display = 'none';
-                    btn.disabled = false;
-                    btn.textContent = '全量刷新';
-                    showToast('刷新过程中出现错误', 'error');
-                };
-
+                startRefreshStream({
+                    url: `/api/groups/${currentGroupId}/refresh?resume=${resumeEnabled ? 'true' : 'false'}`,
+                    label: '分组刷新',
+                    activeButton: btn,
+                    updateLastRefreshTime: false
+                });
             } catch (error) {
-                progress.style.display = 'none';
-                btn.disabled = false;
-                btn.textContent = '全量刷新';
                 showToast('刷新请求失败', 'error');
+            }
+        }
+
+        async function clearRefreshResumeState() {
+            if (!confirm('确定要清空刷新断点状态吗？下次刷新会从头开始。')) {
+                return;
+            }
+
+            try {
+                const payload = {};
+                if (currentGroupId && !isTempEmailGroup) {
+                    payload.group_id = currentGroupId;
+                }
+                const response = await fetch('/api/accounts/refresh-resume/clear', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (data.success) {
+                    showToast(data.message || '已清空断点状态', 'success');
+                    loadRefreshResumeStatus();
+                } else {
+                    showToast(data.error || '清空失败', 'error');
+                }
+            } catch (error) {
+                showToast('清空失败', 'error');
             }
         }
 
@@ -5471,16 +6183,29 @@ ${details}
 
                 if (data.success) {
                     if (data.logs.length === 0) {
-                        listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无全量刷新历史</div>';
+                        listEl.innerHTML = '<div style="padding: 20px; text-align: center; color: #666;">暂无刷新历史</div>';
                     } else {
                         listEl.innerHTML = `<div style="padding: 12px; background-color: #f8f9fa; border-bottom: 1px solid #e5e5e5; font-size: 13px; color: #666;">近半年刷新历史（共 ${data.logs.length} 条）</div>`;
                         let html = '';
                         data.logs.forEach(log => {
                             const statusColor = log.status === 'success' ? '#28a745' : '#dc3545';
                             const statusText = log.status === 'success' ? '成功' : '失败';
-                            const typeText = log.refresh_type === 'manual' ? '手动' : '自动';
-                            const typeColor = log.refresh_type === 'manual' ? '#007bff' : '#28a745';
-                            const typeBgColor = log.refresh_type === 'manual' ? '#e7f3ff' : '#e8f5e9';
+                            let typeText = '自动';
+                            let typeColor = '#28a745';
+                            let typeBgColor = '#e8f5e9';
+                            if (log.refresh_type === 'manual') {
+                                typeText = '手动';
+                                typeColor = '#007bff';
+                                typeBgColor = '#e7f3ff';
+                            } else if (log.refresh_type === 'scheduled') {
+                                typeText = '定时';
+                                typeColor = '#16a34a';
+                                typeBgColor = '#dcfce7';
+                            } else if (log.refresh_type === 'group') {
+                                typeText = '分组';
+                                typeColor = '#f59e0b';
+                                typeBgColor = '#fef3c7';
+                            }
 
                             html += `
                                 <div style="padding: 14px; border-bottom: 1px solid #e5e5e5; transition: background-color 0.2s;"
@@ -5688,6 +6413,7 @@ ${details}
                     nameInput.value = '';
                     showToast('标签创建成功', 'success');
                     await loadTags();
+                    invalidateAccountCaches();
                     // 刷新账号列表以重新加载标签（如果是在查看列表时添加标签，可能不需要立即刷新列表，但为了保持一致性可以刷新）
                     // 但通常添加标签不影响当前列表显示，除非是给账号打标
                 } else {
@@ -5709,6 +6435,7 @@ ${details}
                 if (data.success) {
                     showToast('标签已删除', 'success');
                     await loadTags();
+                    invalidateAccountCaches();
                     // 刷新账号列表以更新标签显示
                     if (currentGroupId) {
                         loadAccountsByGroup(currentGroupId, true);
@@ -5801,6 +6528,7 @@ ${details}
                 if (data.success) {
                     showToast(data.message, 'success');
                     hideBatchTagModal();
+                    invalidateAccountCaches();
                     // 刷新列表
                     if (currentGroupId) {
                         loadAccountsByGroup(currentGroupId, true);

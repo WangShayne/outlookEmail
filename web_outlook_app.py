@@ -17,6 +17,7 @@ import time
 import json
 import re
 import uuid
+import random
 import bcrypt
 import base64
 import html
@@ -26,6 +27,7 @@ from typing import Optional, List, Dict, Any
 from urllib.parse import quote
 from flask import Flask, render_template, request, jsonify, g, session, redirect, url_for, Response
 from functools import wraps
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
@@ -119,6 +121,14 @@ OAUTH_SCOPES = [
     "https://graph.microsoft.com/Mail.ReadWrite",
     "https://graph.microsoft.com/User.Read"
 ]
+
+# 刷新任务配置
+REFRESH_MAX_WORKERS = int(os.getenv("REFRESH_MAX_WORKERS", "12"))
+REFRESH_BATCH_SIZE = int(os.getenv("REFRESH_BATCH_SIZE", "80"))
+REFRESH_BACKOFF_RETRIES = int(os.getenv("REFRESH_BACKOFF_RETRIES", "3"))
+REFRESH_BACKOFF_BASE = float(os.getenv("REFRESH_BACKOFF_BASE", "1.0"))
+REFRESH_BACKOFF_MAX = float(os.getenv("REFRESH_BACKOFF_MAX", "10.0"))
+REFRESH_RESUME_TTL_SECONDS = int(os.getenv("REFRESH_RESUME_TTL_SECONDS", "21600"))  # 6小时
 
 
 # ==================== 登录速率限制 ====================
@@ -366,11 +376,21 @@ def get_response_details(response: requests.Response) -> Any:
 
 # ==================== 数据库操作 ====================
 
+def configure_sqlite(conn: sqlite3.Connection) -> None:
+    """配置 SQLite 连接参数（WAL + busy_timeout）"""
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=5000;")
+    except Exception:
+        pass
+
 def get_db():
     """获取数据库连接"""
     db = getattr(g, '_database', None)
     if db is None:
-        db = g._database = sqlite3.connect(DATABASE)
+        db = g._database = sqlite3.connect(DATABASE, timeout=10)
+        configure_sqlite(db)
         db.row_factory = sqlite3.Row
     return db
 
@@ -385,7 +405,8 @@ def close_connection(exception):
 
 def init_db():
     """初始化数据库"""
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE, timeout=10)
+    configure_sqlite(conn)
     cursor = conn.cursor()
     
     # 创建设置表
@@ -470,6 +491,27 @@ def init_db():
         )
     ''')
 
+    # 创建刷新运行记录表（用于统计与趋势）
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS refresh_runs (
+            run_id TEXT PRIMARY KEY,
+            refresh_type TEXT NOT NULL,
+            started_at TIMESTAMP NOT NULL,
+            finished_at TIMESTAMP,
+            total INTEGER DEFAULT 0,
+            total_all INTEGER DEFAULT 0,
+            success_count INTEGER DEFAULT 0,
+            failed_count INTEGER DEFAULT 0,
+            resumed INTEGER DEFAULT 0,
+            skipped INTEGER DEFAULT 0,
+            group_id INTEGER,
+            max_workers INTEGER,
+            batch_size INTEGER,
+            delay_seconds INTEGER,
+            status TEXT DEFAULT 'running'
+        )
+    ''')
+
     # 创建审计日志表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS audit_logs (
@@ -525,6 +567,20 @@ def init_db():
     group_columns = [col[1] for col in cursor.fetchall()]
     if 'is_system' not in group_columns:
         cursor.execute('ALTER TABLE groups ADD COLUMN is_system INTEGER DEFAULT 0')
+
+    # 检查 refresh_runs 表的缺失列
+    cursor.execute("PRAGMA table_info(refresh_runs)")
+    refresh_columns = [col[1] for col in cursor.fetchall()]
+    if 'total_all' not in refresh_columns:
+        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN total_all INTEGER DEFAULT 0')
+    if 'group_id' not in refresh_columns:
+        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN group_id INTEGER')
+    if 'max_workers' not in refresh_columns:
+        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN max_workers INTEGER')
+    if 'batch_size' not in refresh_columns:
+        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN batch_size INTEGER')
+    if 'delay_seconds' not in refresh_columns:
+        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN delay_seconds INTEGER')
     
     # 创建默认分组
     cursor.execute('''
@@ -573,6 +629,16 @@ def init_db():
     cursor.execute('''
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_delay_seconds', '5')
+    ''')
+
+    cursor.execute('''
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES ('refresh_max_workers', '12')
+    ''')
+
+    cursor.execute('''
+        INSERT OR IGNORE INTO settings (key, value)
+        VALUES ('refresh_batch_size', '80')
     ''')
 
     cursor.execute('''
@@ -1764,6 +1830,61 @@ def api_export_group(group_id):
     )
 
 
+@app.route('/api/groups/<int:group_id>/refresh', methods=['GET'])
+@login_required
+def api_refresh_group_accounts(group_id):
+    """刷新指定分组的账号 token（流式响应，实时返回进度）"""
+    import json
+
+    resume = request.args.get('resume', 'true').lower() == 'true'
+    group = get_group_by_id(group_id)
+    if not group:
+        return jsonify({'success': False, 'error': '分组不存在'})
+    if group.get('name') == '临时邮箱':
+        return jsonify({'success': False, 'error': '临时邮箱分组不支持刷新'})
+
+    def generate():
+        conn = sqlite3.connect(DATABASE, timeout=10)
+        configure_sqlite(conn)
+        conn.row_factory = sqlite3.Row
+
+        try:
+            # 清理超过半年的刷新记录
+            try:
+                conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
+                conn.commit()
+            except Exception as e:
+                print(f"清理旧记录失败: {str(e)}")
+
+            cursor = conn.execute(
+                "SELECT id, email, client_id, refresh_token FROM accounts "
+                "WHERE status = 'active' AND group_id = ? ORDER BY id",
+                (group_id,)
+            )
+            accounts = cursor.fetchall()
+            config = _resolve_refresh_config(conn, len(accounts), mode='full')
+
+            for event in _refresh_accounts_generator(
+                conn=conn,
+                accounts=accounts,
+                refresh_type='group',
+                delay_seconds=config['delay_seconds'],
+                resume=resume,
+                max_workers=config['max_workers'],
+                batch_size=config['batch_size'],
+                group_id=group_id,
+                group_name=group.get('name'),
+                resume_key=f"group_{group_id}",
+                scope_label='group'
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
+
+        finally:
+            conn.close()
+
+    return Response(generate(), mimetype='text/event-stream')
+
+
 @app.route('/api/accounts/export')
 @login_required
 def api_export_all_accounts():
@@ -1892,41 +2013,127 @@ def api_generate_export_verify_token():
 def api_get_accounts():
     """获取所有账号"""
     group_id = request.args.get('group_id', type=int)
-    accounts = load_accounts(group_id)
+    limit = request.args.get('limit', default=100, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    sort_by = request.args.get('sort_by', default='refresh_time')
+    sort_order = request.args.get('sort_order', default='asc')
+    tag_ids_param = request.args.get('tag_ids', '').strip()
 
-    # 获取每个账号的最后刷新状态
+    if limit is None:
+        limit = 100
+    if limit < 0:
+        limit = 100
+    max_limit = 500
+    if limit > max_limit:
+        limit = max_limit
+
+    if offset is None or offset < 0:
+        offset = 0
+
+    sort_fields = {
+        'refresh_time': "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
+        'email': "LOWER(a.email)",
+        'created_at': "a.created_at"
+    }
+    sort_field = sort_fields.get(sort_by, sort_fields['refresh_time'])
+    sort_dir = 'DESC' if str(sort_order).lower() == 'desc' else 'ASC'
+
+    tag_ids = []
+    if tag_ids_param:
+        for part in tag_ids_param.split(','):
+            part = part.strip()
+            if part.isdigit():
+                tag_ids.append(int(part))
+
     db = get_db()
 
-    # 返回时隐藏敏感信息
+    # 组装 WHERE 条件
+    where_clauses = []
+    params = []
+    if group_id:
+        where_clauses.append("a.group_id = ?")
+        params.append(group_id)
+    if tag_ids:
+        placeholders = ",".join(["?"] * len(tag_ids))
+        where_clauses.append(
+            f"a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
+        )
+        params.extend(tag_ids)
+
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
+
+    # 统计总数
+    count_sql = f"SELECT COUNT(DISTINCT a.id) as total FROM accounts a {where_sql}"
+    total = db.execute(count_sql, params).fetchone()['total']
+
+    # 获取当前页数据（批量获取最后刷新状态 + 分组信息）
+    accounts_sql = f'''
+        SELECT DISTINCT a.*, g.name as group_name, g.color as group_color,
+               l.status as last_refresh_status, l.error_message as last_refresh_error
+        FROM accounts a
+        LEFT JOIN groups g ON a.group_id = g.id
+        LEFT JOIN (
+            SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
+            FROM account_refresh_logs l1
+            INNER JOIN (
+                SELECT account_id, MAX(created_at) as max_created
+                FROM account_refresh_logs
+                GROUP BY account_id
+            ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+        ) l ON a.id = l.account_id
+        {where_sql}
+        ORDER BY {sort_field} {sort_dir}, a.id ASC
+        LIMIT ? OFFSET ?
+    '''
+    accounts = db.execute(accounts_sql, params + [limit, offset]).fetchall()
+
+    account_ids = [row['id'] for row in accounts]
+    tags_map = {}
+    if account_ids:
+        placeholders = ",".join(["?"] * len(account_ids))
+        tag_rows = db.execute(
+            f'''
+                SELECT at.account_id, t.id, t.name, t.color
+                FROM account_tags at
+                JOIN tags t ON at.tag_id = t.id
+                WHERE at.account_id IN ({placeholders})
+                ORDER BY t.created_at DESC
+            ''',
+            account_ids
+        ).fetchall()
+        for row in tag_rows:
+            tags_map.setdefault(row['account_id'], []).append({
+                'id': row['id'],
+                'name': row['name'],
+                'color': row['color']
+            })
+
     safe_accounts = []
     for acc in accounts:
-        # 查询该账号最后一次刷新记录
-        cursor = db.execute('''
-            SELECT status, error_message, created_at
-            FROM account_refresh_logs
-            WHERE account_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        ''', (acc['id'],))
-        last_refresh_log = cursor.fetchone()
-
         safe_accounts.append({
             'id': acc['id'],
             'email': acc['email'],
             'client_id': acc['client_id'][:8] + '...' if len(acc['client_id']) > 8 else acc['client_id'],
-            'group_id': acc.get('group_id'),
-            'group_name': acc.get('group_name', '默认分组'),
-            'group_color': acc.get('group_color', '#666666'),
-            'remark': acc.get('remark', ''),
-            'status': acc.get('status', 'active'),
-            'last_refresh_at': acc.get('last_refresh_at', ''),
-            'last_refresh_status': last_refresh_log['status'] if last_refresh_log else None,
-            'last_refresh_error': last_refresh_log['error_message'] if last_refresh_log else None,
-            'created_at': acc.get('created_at', ''),
-            'updated_at': acc.get('updated_at', ''),
-            'tags': acc.get('tags', [])
+            'group_id': acc['group_id'],
+            'group_name': acc['group_name'] if acc['group_name'] else '默认分组',
+            'group_color': acc['group_color'] if acc['group_color'] else '#666666',
+            'remark': acc['remark'] if acc['remark'] else '',
+            'status': acc['status'] if acc['status'] else 'active',
+            'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
+            'last_refresh_status': acc['last_refresh_status'],
+            'last_refresh_error': acc['last_refresh_error'],
+            'created_at': acc['created_at'] if acc['created_at'] else '',
+            'updated_at': acc['updated_at'] if acc['updated_at'] else '',
+            'tags': tags_map.get(acc['id'], [])
         })
-    return jsonify({'success': True, 'accounts': safe_accounts})
+
+    return jsonify({
+        'success': True,
+        'accounts': safe_accounts,
+        'total': total,
+        'limit': limit,
+        'offset': offset
+    })
 
 
 # ==================== 标签 API ====================
@@ -1996,39 +2203,120 @@ def api_batch_manage_tags():
 def api_search_accounts():
     """全局搜索账号"""
     query = request.args.get('q', '').strip()
+    limit = request.args.get('limit', default=100, type=int)
+    offset = request.args.get('offset', default=0, type=int)
+    sort_by = request.args.get('sort_by', default='created_at')
+    sort_order = request.args.get('sort_order', default='desc')
+    tag_ids_param = request.args.get('tag_ids', '').strip()
+    group_id = request.args.get('group_id', type=int)
 
     if not query:
-        return jsonify({'success': True, 'accounts': []})
+        return jsonify({'success': True, 'accounts': [], 'total': 0, 'limit': limit, 'offset': offset})
+
+    if limit is None:
+        limit = 100
+    if limit < 0:
+        limit = 100
+    max_limit = 500
+    if limit > max_limit:
+        limit = max_limit
+    if offset is None or offset < 0:
+        offset = 0
+
+    sort_fields = {
+        'refresh_time': "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
+        'email': "LOWER(a.email)",
+        'created_at': "a.created_at"
+    }
+    sort_field = sort_fields.get(sort_by, sort_fields['created_at'])
+    sort_dir = 'DESC' if str(sort_order).lower() == 'desc' else 'ASC'
 
     db = get_db()
-    # 支持搜索邮箱、备注和标签
-    cursor = db.execute('''
-        SELECT DISTINCT a.*, g.name as group_name, g.color as group_color
+    like_query = f'%{query}%'
+    tag_ids = []
+    if tag_ids_param:
+        for part in tag_ids_param.split(','):
+            part = part.strip()
+            if part.isdigit():
+                tag_ids.append(int(part))
+    group_filter_sql = ""
+    group_filter_params = []
+    if group_id:
+        group_filter_sql = " AND a.group_id = ?"
+        group_filter_params = [group_id]
+
+    tag_filter_sql = ""
+    tag_filter_params = []
+    if tag_ids:
+        placeholders = ",".join(["?"] * len(tag_ids))
+        tag_filter_sql = f" AND a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
+        tag_filter_params = tag_ids
+
+    count_row = db.execute(f'''
+        WITH matched AS (
+            SELECT DISTINCT a.id
+            FROM accounts a
+            LEFT JOIN account_tags at ON a.id = at.account_id
+            LEFT JOIN tags t ON at.tag_id = t.id
+            WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
+            {tag_filter_sql}
+            {group_filter_sql}
+        )
+        SELECT COUNT(*) as total FROM matched
+    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params)).fetchone()
+    total = count_row['total'] if count_row else 0
+
+    rows = db.execute(f'''
+        WITH matched AS (
+            SELECT DISTINCT a.id
+            FROM accounts a
+            LEFT JOIN account_tags at ON a.id = at.account_id
+            LEFT JOIN tags t ON at.tag_id = t.id
+            WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
+            {tag_filter_sql}
+            {group_filter_sql}
+        )
+        SELECT a.*, g.name as group_name, g.color as group_color,
+               l.status as last_refresh_status, l.error_message as last_refresh_error
         FROM accounts a
+        JOIN matched m ON a.id = m.id
         LEFT JOIN groups g ON a.group_id = g.id
-        LEFT JOIN account_tags at ON a.id = at.account_id
-        LEFT JOIN tags t ON at.tag_id = t.id
-        WHERE a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?
-        ORDER BY a.created_at DESC
-    ''', (f'%{query}%', f'%{query}%', f'%{query}%'))
+        LEFT JOIN (
+            SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
+            FROM account_refresh_logs l1
+            INNER JOIN (
+                SELECT account_id, MAX(created_at) as max_created
+                FROM account_refresh_logs
+                GROUP BY account_id
+            ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
+        ) l ON a.id = l.account_id
+        ORDER BY {sort_field} {sort_dir}, a.id ASC
+        LIMIT ? OFFSET ?
+    ''', (like_query, like_query, like_query, *tag_filter_params, *group_filter_params, limit, offset)).fetchall()
 
-    rows = cursor.fetchall()
+    account_ids = [row['id'] for row in rows]
+    tags_map = {}
+    if account_ids:
+        placeholders = ",".join(["?"] * len(account_ids))
+        tag_rows = db.execute(
+            f'''
+                SELECT at.account_id, t.id, t.name, t.color
+                FROM account_tags at
+                JOIN tags t ON at.tag_id = t.id
+                WHERE at.account_id IN ({placeholders})
+                ORDER BY t.created_at DESC
+            ''',
+            account_ids
+        ).fetchall()
+        for row in tag_rows:
+            tags_map.setdefault(row['account_id'], []).append({
+                'id': row['id'],
+                'name': row['name'],
+                'color': row['color']
+            })
+
     safe_accounts = []
-    for row in rows:
-        acc = dict(row)
-        # 加载账号标签
-        acc['tags'] = get_account_tags(acc['id'])
-        
-        # 查询该账号最后一次刷新记录
-        refresh_cursor = db.execute('''
-            SELECT status, error_message, created_at
-            FROM account_refresh_logs
-            WHERE account_id = ?
-            ORDER BY created_at DESC
-            LIMIT 1
-        ''', (acc['id'],))
-        last_refresh_log = refresh_cursor.fetchone()
-
+    for acc in rows:
         safe_accounts.append({
             'id': acc['id'],
             'email': acc['email'],
@@ -2040,13 +2328,73 @@ def api_search_accounts():
             'status': acc['status'] if acc['status'] else 'active',
             'created_at': acc['created_at'] if acc['created_at'] else '',
             'updated_at': acc['updated_at'] if acc['updated_at'] else '',
-            'tags': acc['tags'],
-            'last_refresh_at': acc.get('last_refresh_at', ''),
-            'last_refresh_status': last_refresh_log['status'] if last_refresh_log else None,
-            'last_refresh_error': last_refresh_log['error_message'] if last_refresh_log else None
+            'tags': tags_map.get(acc['id'], []),
+            'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
+            'last_refresh_status': acc['last_refresh_status'],
+            'last_refresh_error': acc['last_refresh_error']
         })
 
-    return jsonify({'success': True, 'accounts': safe_accounts})
+    return jsonify({
+        'success': True,
+        'accounts': safe_accounts,
+        'total': total,
+        'limit': limit,
+        'offset': offset
+    })
+
+
+@app.route('/api/accounts/refresh-resume/clear', methods=['POST'])
+@login_required
+def api_clear_refresh_resume_state():
+    """清空刷新断点状态"""
+    db = get_db()
+    group_id = None
+    try:
+        if request.is_json:
+            group_id = request.json.get('group_id')
+        else:
+            group_id = request.form.get('group_id')
+    except Exception:
+        group_id = None
+    try:
+        keys = ["refresh_resume_state_manual", "refresh_resume_state_scheduled"]
+        if group_id:
+            keys.append(f"refresh_resume_state_group_{int(group_id)}")
+        placeholders = ",".join(["?"] * len(keys))
+        db.execute(
+            f"DELETE FROM settings WHERE key IN ({placeholders})",
+            tuple(keys)
+        )
+        db.commit()
+        return jsonify({'success': True, 'message': '已清空刷新断点状态'})
+    except Exception:
+        return jsonify({'success': False, 'error': '清空失败'})
+
+
+@app.route('/api/accounts/refresh-resume/status', methods=['GET'])
+@login_required
+def api_get_refresh_resume_status():
+    """获取刷新断点状态详情"""
+    db = get_db()
+    group_id = request.args.get('group_id', type=int)
+    manual_state = _load_resume_state_any(db, 'manual')
+    scheduled_state = _load_resume_state_any(db, 'scheduled')
+    group_state = None
+    group_name = None
+    if group_id:
+        group = get_group_by_id(group_id)
+        if group:
+            group_name = group.get('name')
+            group_state = _load_resume_state_any(db, f"group_{group_id}")
+    history_rates = _get_recent_refresh_rates(db, limit=5, refresh_types=['manual', 'scheduled'])
+    return jsonify({
+        'success': True,
+        'manual': manual_state,
+        'scheduled': scheduled_state,
+        'group': group_state,
+        'group_name': group_name,
+        'history_rates': history_rates
+    })
 
 
 @app.route('/api/accounts/<int:account_id>', methods=['GET'])
@@ -2196,12 +2544,520 @@ def log_refresh_result(account_id: int, account_email: str, refresh_type: str, s
         return False
 
 
+def _compute_backoff_delay(attempt: int, retry_after: Optional[str] = None) -> float:
+    if retry_after:
+        try:
+            return max(0.5, min(REFRESH_BACKOFF_MAX, float(retry_after)))
+        except Exception:
+            pass
+    base = min(REFRESH_BACKOFF_MAX, REFRESH_BACKOFF_BASE * (2 ** attempt))
+    return base + random.uniform(0, 0.3)
+
+
+def post_with_backoff(url: str, data: Dict[str, Any], timeout: int = 30) -> requests.Response:
+    """带退避重试的 POST 请求（用于刷新任务）"""
+    retry_status = {429, 500, 502, 503, 504}
+    last_exc = None
+    for attempt in range(REFRESH_BACKOFF_RETRIES + 1):
+        try:
+            response = requests.post(url, data=data, timeout=timeout)
+        except Exception as exc:
+            last_exc = exc
+            if attempt >= REFRESH_BACKOFF_RETRIES:
+                raise
+            time.sleep(_compute_backoff_delay(attempt))
+            continue
+
+        if response.status_code in retry_status and attempt < REFRESH_BACKOFF_RETRIES:
+            retry_after = response.headers.get('Retry-After')
+            time.sleep(_compute_backoff_delay(attempt, retry_after))
+            continue
+
+        return response
+
+    if last_exc:
+        raise last_exc
+    return response
+
+
+def _get_setting_conn(conn: sqlite3.Connection, key: str, default: str = '') -> str:
+    cursor = conn.execute('SELECT value FROM settings WHERE key = ?', (key,))
+    row = cursor.fetchone()
+    return row[0] if row else default
+
+
+def _set_setting_conn(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute('''
+        INSERT OR REPLACE INTO settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+    ''', (key, value))
+
+
+def _get_setting_int_conn(conn: sqlite3.Connection, key: str, default: int) -> int:
+    raw = _get_setting_conn(conn, key, '')
+    try:
+        return int(raw)
+    except Exception:
+        return default
+
+
+def _resolve_refresh_config(conn: sqlite3.Connection, total: int, mode: str = 'default') -> Dict[str, int]:
+    delay_seconds = _get_setting_int_conn(conn, 'refresh_delay_seconds', 5)
+    max_workers = _get_setting_int_conn(conn, 'refresh_max_workers', REFRESH_MAX_WORKERS)
+    batch_size = _get_setting_int_conn(conn, 'refresh_batch_size', REFRESH_BATCH_SIZE)
+
+    delay_seconds = max(0, min(delay_seconds, 60))
+    max_workers = max(1, min(max_workers, 20))
+    batch_size = max(1, min(batch_size, 100))
+
+    if mode == 'full':
+        # 全量刷新：保守策略，降低并发，保证稳定完成
+        max_workers = min(max_workers, 6)
+        batch_size = min(batch_size, 30)
+        delay_seconds = max(delay_seconds, 2)
+    else:
+        # 自动调优：根据规模调节并发/批次/间隔（偏性能但保留稳定性余量）
+        if total >= 2000:
+            max_workers = max(max_workers, 14)
+            batch_size = max(batch_size, 100)
+            delay_seconds = min(delay_seconds, 1)
+        elif total >= 1000:
+            max_workers = max(max_workers, 12)
+            batch_size = max(batch_size, 80)
+            delay_seconds = min(delay_seconds, 2)
+        elif total >= 500:
+            max_workers = max(max_workers, 10)
+            batch_size = max(batch_size, 60)
+            delay_seconds = min(delay_seconds, 3)
+
+    if total > 0:
+        if total < max_workers:
+            max_workers = max(1, total)
+        if total < batch_size:
+            batch_size = max(1, total)
+        if batch_size < max_workers:
+            batch_size = max_workers
+
+    return {
+        'delay_seconds': delay_seconds,
+        'max_workers': max_workers,
+        'batch_size': batch_size
+    }
+
+
+def _resume_state_key(resume_key: str) -> str:
+    return f"refresh_resume_state_{resume_key}"
+
+
+def _get_resume_state(conn: sqlite3.Connection, resume_key: str) -> Optional[Dict[str, Any]]:
+    key = _resume_state_key(resume_key)
+    raw = _get_setting_conn(conn, key, '')
+    if not raw:
+        return None
+    try:
+        state = json.loads(raw)
+    except Exception:
+        return None
+    if state.get('status') != 'running':
+        return None
+    updated_at = state.get('updated_at')
+    if updated_at:
+        try:
+            updated_time = datetime.fromisoformat(updated_at)
+            if (datetime.now() - updated_time).total_seconds() > REFRESH_RESUME_TTL_SECONDS:
+                return None
+        except Exception:
+            return None
+    return state
+
+
+def _load_resume_state_any(conn: sqlite3.Connection, resume_key: str) -> Optional[Dict[str, Any]]:
+    key = _resume_state_key(resume_key)
+    raw = _get_setting_conn(conn, key, '')
+    if not raw:
+        return None
+    try:
+        state = json.loads(raw)
+    except Exception:
+        return None
+    total = state.get('total')
+    processed = state.get('processed')
+    remaining = None
+    if isinstance(total, int) and isinstance(processed, int):
+        remaining = max(0, total - processed)
+    updated_at = state.get('updated_at')
+    stale = False
+    if updated_at:
+        try:
+            updated_time = datetime.fromisoformat(updated_at)
+            stale = (datetime.now() - updated_time).total_seconds() > REFRESH_RESUME_TTL_SECONDS
+        except Exception:
+            stale = False
+    return {
+        'status': state.get('status'),
+        'started_at': state.get('started_at'),
+        'updated_at': updated_at,
+        'finished_at': state.get('finished_at'),
+        'last_id': state.get('last_id'),
+        'total': total,
+        'processed': processed,
+        'remaining': remaining,
+        'stale': stale,
+        'duration_seconds': state.get('duration_seconds'),
+        'avg_rate': state.get('avg_rate'),
+        'group_id': state.get('group_id')
+    }
+
+
+def _get_recent_refresh_rates(
+    conn: sqlite3.Connection,
+    limit: int = 3,
+    refresh_types: Optional[List[str]] = None
+) -> List[Dict[str, Any]]:
+    """获取最近 N 次刷新均速统计（基于刷新运行记录）"""
+    where_sql = ''
+    params: List[Any] = []
+    if refresh_types:
+        placeholders = ",".join(["?"] * len(refresh_types))
+        where_sql = f"WHERE refresh_type IN ({placeholders})"
+        params.extend(refresh_types)
+    params.append(limit)
+    runs = conn.execute(f'''
+        SELECT run_id, refresh_type, started_at, finished_at, total, success_count, failed_count
+        FROM refresh_runs
+        {where_sql}
+        ORDER BY started_at DESC
+        LIMIT ?
+    ''', params).fetchall()
+    results = []
+    for row in runs:
+        run_time = row['started_at']
+        total = row['total'] or 0
+        if not run_time or total == 0:
+            continue
+
+        duration_seconds = None
+        if row['started_at'] and row['finished_at']:
+            try:
+                start = datetime.fromisoformat(row['started_at'])
+                end = datetime.fromisoformat(row['finished_at'])
+                duration_seconds = max(1, int((end - start).total_seconds()))
+            except Exception:
+                duration_seconds = None
+
+        avg_rate = None
+        if duration_seconds:
+            avg_rate = total / duration_seconds
+
+        results.append({
+            'run_id': row['run_id'],
+            'run_time': run_time,
+            'refresh_type': row['refresh_type'],
+            'total': total,
+            'success_count': row['success_count'] or 0,
+            'failed_count': row['failed_count'] or 0,
+            'duration_seconds': duration_seconds,
+            'avg_rate': avg_rate
+        })
+
+    return results
+
+
+def _save_resume_state(conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]) -> None:
+    key = _resume_state_key(resume_key)
+    state['updated_at'] = datetime.now().isoformat()
+    _set_setting_conn(conn, key, json.dumps(state, ensure_ascii=True))
+
+
+def _complete_resume_state(conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]) -> None:
+    state['status'] = 'completed'
+    state['finished_at'] = datetime.now().isoformat()
+    try:
+        started_at = state.get('started_at')
+        processed = state.get('processed')
+        if started_at:
+            started_time = datetime.fromisoformat(started_at)
+            finished_time = datetime.fromisoformat(state['finished_at'])
+            duration_seconds = max(1, int((finished_time - started_time).total_seconds()))
+            state['duration_seconds'] = duration_seconds
+            if isinstance(processed, int) and processed > 0:
+                state['avg_rate'] = processed / duration_seconds
+    except Exception:
+        pass
+    _save_resume_state(conn, resume_key, state)
+
+
+def _is_throttle_error(error_msg: Optional[str]) -> bool:
+    if not error_msg:
+        return False
+    text = str(error_msg).lower()
+    keywords = [
+        'too many requests',
+        'temporarily_unavailable',
+        'throttle',
+        'rate limit',
+        '429',
+        'retry-after'
+    ]
+    return any(keyword in text for keyword in keywords)
+
+
+def _refresh_account_worker(account: sqlite3.Row) -> Dict[str, Any]:
+    account_id = account['id']
+    account_email = account['email']
+    client_id = account['client_id']
+    encrypted_refresh_token = account['refresh_token']
+
+    try:
+        refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
+    except Exception as exc:
+        return {
+            'id': account_id,
+            'email': account_email,
+            'success': False,
+            'error': f"解密 token 失败: {str(exc)}"
+        }
+
+    success, error_msg = test_refresh_token(client_id, refresh_token)
+    return {
+        'id': account_id,
+        'email': account_email,
+        'success': success,
+        'error': error_msg
+    }
+
+
+def _refresh_accounts_generator(
+    conn: sqlite3.Connection,
+    accounts: List[sqlite3.Row],
+    refresh_type: str,
+    delay_seconds: int,
+    resume: bool,
+    max_workers: Optional[int] = None,
+    batch_size: Optional[int] = None,
+    group_id: Optional[int] = None,
+    group_name: Optional[str] = None,
+    resume_key: Optional[str] = None,
+    scope_label: Optional[str] = None
+) -> Any:
+    """刷新账号，支持并发、退避和断点续跑（生成事件）"""
+    resume_key = resume_key or refresh_type
+    scope_label = scope_label or refresh_type
+    max_workers = max_workers if max_workers is not None else max(1, min(REFRESH_MAX_WORKERS, 20))
+    batch_size = batch_size if batch_size is not None else max(1, min(REFRESH_BATCH_SIZE, 100))
+
+    total_all = len(accounts)
+    resumed = False
+    resume_state = _get_resume_state(conn, resume_key) if resume else None
+    start_from_id = None
+
+    if resume_state and resume_state.get('last_id'):
+        start_from_id = int(resume_state['last_id'])
+        resumed = True
+
+    if start_from_id:
+        accounts = [acc for acc in accounts if acc['id'] > start_from_id]
+
+    total = len(accounts)
+    now_iso = datetime.now().isoformat()
+    state = {
+        'status': 'running',
+        'started_at': resume_state.get('started_at') if resume_state else now_iso,
+        'last_id': start_from_id or 0,
+        'total': total_all,
+        'processed': total_all - total,
+        'group_id': group_id
+    }
+    _save_resume_state(conn, resume_key, state)
+
+    skipped_count = total_all - total
+    run_id = uuid.uuid4().hex
+    conn.execute('''
+        INSERT INTO refresh_runs (
+            run_id, refresh_type, started_at, total, total_all,
+            resumed, skipped, group_id, max_workers, batch_size, delay_seconds, status
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ''', (
+        run_id,
+        refresh_type,
+        now_iso,
+        total,
+        total_all,
+        1 if resumed else 0,
+        skipped_count,
+        group_id,
+        max_workers,
+        batch_size,
+        delay_seconds,
+        'running'
+    ))
+    conn.commit()
+
+    success_count = 0
+    failed_count = 0
+    failed_list = []
+    processed = 0
+    run_started_ts = time.time()
+    current_delay = delay_seconds
+
+    yield {
+        'type': 'start',
+        'total': total,
+        'total_all': total_all,
+        'delay_seconds': delay_seconds,
+        'max_workers': max_workers,
+        'batch_size': batch_size,
+        'refresh_type': refresh_type,
+        'resumed': resumed,
+        'skipped': skipped_count,
+        'run_id': run_id,
+        'scope': scope_label,
+        'group_id': group_id,
+        'group_name': group_name
+    }
+
+    if total == 0:
+        conn.execute('''
+            UPDATE refresh_runs
+            SET finished_at = CURRENT_TIMESTAMP,
+                success_count = 0,
+                failed_count = 0,
+                status = 'completed'
+            WHERE run_id = ?
+        ''', (run_id,))
+        conn.commit()
+        _complete_resume_state(conn, resume_key, state)
+        yield {
+            'type': 'complete',
+            'total': total,
+            'success_count': 0,
+            'failed_count': 0,
+            'failed_list': [],
+            'run_id': run_id,
+            'duration_seconds': 0,
+            'avg_rate': None
+        }
+        return
+
+    executor = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        for batch_start in range(0, total, batch_size):
+            batch = accounts[batch_start:batch_start + batch_size]
+            future_map = {executor.submit(_refresh_account_worker, acc): acc for acc in batch}
+            throttle_hits = 0
+            for future in as_completed(future_map):
+                acc = future_map[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {
+                        'id': acc['id'],
+                        'email': acc['email'],
+                        'success': False,
+                        'error': f"刷新异常: {str(exc)}"
+                    }
+
+                # 写入刷新日志
+                conn.execute('''
+                    INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
+                    VALUES (?, ?, ?, ?, ?)
+                ''', (
+                    result['id'],
+                    result['email'],
+                    refresh_type,
+                    'success' if result['success'] else 'failed',
+                    result['error']
+                ))
+
+                if result['success']:
+                    conn.execute('''
+                        UPDATE accounts
+                        SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+                        WHERE id = ?
+                    ''', (result['id'],))
+                    success_count += 1
+                else:
+                    failed_count += 1
+                    failed_list.append({
+                        'id': result['id'],
+                        'email': result['email'],
+                        'error': result['error']
+                    })
+                    if _is_throttle_error(result.get('error')):
+                        throttle_hits += 1
+
+                processed += 1
+                elapsed = max(1.0, time.time() - run_started_ts)
+                rate_per_min = (processed / elapsed) * 60
+                eta_seconds = None
+                if processed > 0 and processed < total:
+                    eta_seconds = int(((total - processed) / (processed / elapsed)) or 0)
+
+                yield {
+                    'type': 'progress',
+                    'email': result['email'],
+                    'current': processed,
+                    'total': total,
+                    'success_count': success_count,
+                    'failed_count': failed_count,
+                    'rate_per_min': rate_per_min,
+                    'eta_seconds': eta_seconds,
+                    'elapsed_seconds': int(elapsed),
+                    'run_id': run_id
+                }
+
+            # 批次提交 + 断点记录
+            last_id = batch[-1]['id']
+            state['last_id'] = last_id
+            state['processed'] = total_all - (total - (batch_start + len(batch)))
+            _save_resume_state(conn, resume_key, state)
+            conn.commit()
+
+            if throttle_hits > 0:
+                current_delay = min(
+                    REFRESH_BACKOFF_MAX,
+                    max(current_delay, 1) + min(3, throttle_hits)
+                )
+            elif current_delay > delay_seconds:
+                current_delay = max(delay_seconds, current_delay - 1)
+
+            if current_delay > 0 and (batch_start + batch_size) < total:
+                yield {'type': 'delay', 'seconds': current_delay, 'run_id': run_id}
+                time.sleep(current_delay)
+    finally:
+        executor.shutdown(wait=True)
+
+    _complete_resume_state(conn, resume_key, state)
+    duration_seconds = max(1, int(time.time() - run_started_ts))
+    avg_rate = (success_count + failed_count) / duration_seconds if duration_seconds > 0 else None
+    conn.execute('''
+        UPDATE refresh_runs
+        SET finished_at = CURRENT_TIMESTAMP,
+            success_count = ?,
+            failed_count = ?,
+            status = 'completed'
+        WHERE run_id = ?
+    ''', (success_count, failed_count, run_id))
+    conn.commit()
+    yield {
+        'type': 'complete',
+        'total': total,
+        'success_count': success_count,
+        'failed_count': failed_count,
+        'failed_list': failed_list,
+        'run_id': run_id,
+        'duration_seconds': duration_seconds,
+        'avg_rate': avg_rate
+    }
+
+
 def test_refresh_token(client_id: str, refresh_token: str) -> tuple[bool, str]:
     """测试 refresh token 是否有效，返回 (是否成功, 错误信息)"""
     try:
         # 尝试使用 Graph API 获取 access token
         # 使用与 get_access_token_graph 相同的 scope，确保一致性
-        res = requests.post(
+        res = post_with_backoff(
             TOKEN_URL_GRAPH,
             data={
                 "client_id": client_id,
@@ -2284,19 +3140,17 @@ def api_refresh_account(account_id):
 def api_refresh_all_accounts():
     """刷新所有账号的 token（流式响应，实时返回进度）"""
     import json
-    import time
+
+    force = request.args.get('force', 'false').lower() == 'true'
+    resume = request.args.get('resume', 'true').lower() == 'true'
 
     def generate():
         # 在生成器内部直接创建数据库连接
-        conn = sqlite3.connect(DATABASE)
+        conn = sqlite3.connect(DATABASE, timeout=10)
+        configure_sqlite(conn)
         conn.row_factory = sqlite3.Row
 
         try:
-            # 获取刷新间隔配置
-            cursor_settings = conn.execute("SELECT value FROM settings WHERE key = 'refresh_delay_seconds'")
-            delay_row = cursor_settings.fetchone()
-            delay_seconds = int(delay_row['value']) if delay_row else 5
-
             # 清理超过半年的刷新记录
             try:
                 conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
@@ -2304,87 +3158,23 @@ def api_refresh_all_accounts():
             except Exception as e:
                 print(f"清理旧记录失败: {str(e)}")
 
-            cursor = conn.execute("SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active'")
+            cursor = conn.execute(
+                "SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active' ORDER BY id"
+            )
             accounts = cursor.fetchall()
+            config = _resolve_refresh_config(conn, len(accounts), mode='full')
 
-            total = len(accounts)
-            success_count = 0
-            failed_count = 0
-            failed_list = []
-
-            # 发送开始信息
-            yield f"data: {json.dumps({'type': 'start', 'total': total, 'delay_seconds': delay_seconds})}\n\n"
-
-            for index, account in enumerate(accounts, 1):
-                account_id = account['id']
-                account_email = account['email']
-                client_id = account['client_id']
-                encrypted_refresh_token = account['refresh_token']
-
-                # 解密 refresh_token
-                try:
-                    refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
-                except Exception as e:
-                    # 解密失败，记录错误
-                    failed_count += 1
-                    error_msg = f"解密 token 失败: {str(e)}"
-                    failed_list.append({
-                        'id': account_id,
-                        'email': account_email,
-                        'error': error_msg
-                    })
-                    try:
-                        conn.execute('''
-                            INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (account_id, account_email, 'manual', 'failed', error_msg))
-                        conn.commit()
-                    except Exception:
-                        pass
-                    continue
-
-                # 发送当前处理的账号信息
-                yield f"data: {json.dumps({'type': 'progress', 'current': index, 'total': total, 'email': account_email, 'success_count': success_count, 'failed_count': failed_count})}\n\n"
-
-                # 测试 refresh token
-                success, error_msg = test_refresh_token(client_id, refresh_token)
-
-                # 记录刷新结果（使用当前连接）
-                try:
-                    conn.execute('''
-                        INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (account_id, account_email, 'manual', 'success' if success else 'failed', error_msg))
-
-                    # 更新账号的最后刷新时间
-                    if success:
-                        conn.execute('''
-                            UPDATE accounts
-                            SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        ''', (account_id,))
-
-                    conn.commit()
-                except Exception as e:
-                    print(f"记录刷新结果失败: {str(e)}")
-
-                if success:
-                    success_count += 1
-                else:
-                    failed_count += 1
-                    failed_list.append({
-                        'id': account_id,
-                        'email': account_email,
-                        'error': error_msg
-                    })
-
-                # 间隔控制（最后一个账号不需要延迟）
-                if index < total and delay_seconds > 0:
-                    yield f"data: {json.dumps({'type': 'delay', 'seconds': delay_seconds})}\n\n"
-                    time.sleep(delay_seconds)
-
-            # 发送完成信息
-            yield f"data: {json.dumps({'type': 'complete', 'total': total, 'success_count': success_count, 'failed_count': failed_count, 'failed_list': failed_list})}\n\n"
+            for event in _refresh_accounts_generator(
+                conn=conn,
+                accounts=accounts,
+                refresh_type='manual',
+                delay_seconds=config['delay_seconds'],
+                resume=resume,
+                max_workers=config['max_workers'],
+                batch_size=config['batch_size'],
+                scope_label='manual'
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
 
         finally:
             conn.close()
@@ -2477,6 +3267,7 @@ def api_trigger_scheduled_refresh():
     from datetime import datetime, timedelta
 
     force = request.args.get('force', 'false').lower() == 'true'
+    resume = request.args.get('resume', 'true').lower() == 'true'
 
     # 获取配置
     refresh_interval_days = int(get_setting('refresh_interval_days', '30'))
@@ -2505,15 +3296,11 @@ def api_trigger_scheduled_refresh():
 
     # 执行刷新（使用流式响应）
     def generate():
-        conn = sqlite3.connect(DATABASE)
+        conn = sqlite3.connect(DATABASE, timeout=10)
+        configure_sqlite(conn)
         conn.row_factory = sqlite3.Row
 
         try:
-            # 获取刷新间隔配置
-            cursor_settings = conn.execute("SELECT value FROM settings WHERE key = 'refresh_delay_seconds'")
-            delay_row = cursor_settings.fetchone()
-            delay_seconds = int(delay_row['value']) if delay_row else 5
-
             # 清理超过半年的刷新记录
             try:
                 conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
@@ -2521,80 +3308,23 @@ def api_trigger_scheduled_refresh():
             except Exception as e:
                 print(f"清理旧记录失败: {str(e)}")
 
-            cursor = conn.execute("SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active'")
+            cursor = conn.execute(
+                "SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active' ORDER BY id"
+            )
             accounts = cursor.fetchall()
+            config = _resolve_refresh_config(conn, len(accounts), mode='group')
 
-            total = len(accounts)
-            success_count = 0
-            failed_count = 0
-            failed_list = []
-
-            yield f"data: {json.dumps({'type': 'start', 'total': total, 'delay_seconds': delay_seconds, 'refresh_type': 'scheduled'})}\n\n"
-
-            for index, account in enumerate(accounts, 1):
-                account_id = account['id']
-                account_email = account['email']
-                client_id = account['client_id']
-                encrypted_refresh_token = account['refresh_token']
-
-                # 解密 refresh_token
-                try:
-                    refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
-                except Exception as e:
-                    # 解密失败，记录错误
-                    failed_count += 1
-                    error_msg = f"解密 token 失败: {str(e)}"
-                    failed_list.append({
-                        'id': account_id,
-                        'email': account_email,
-                        'error': error_msg
-                    })
-                    try:
-                        conn.execute('''
-                            INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
-                            VALUES (?, ?, ?, ?, ?)
-                        ''', (account_id, account_email, 'scheduled', 'failed', error_msg))
-                        conn.commit()
-                    except Exception:
-                        pass
-                    continue
-
-                yield f"data: {json.dumps({'type': 'progress', 'current': index, 'total': total, 'email': account_email, 'success_count': success_count, 'failed_count': failed_count})}\n\n"
-
-                success, error_msg = test_refresh_token(client_id, refresh_token)
-
-                try:
-                    conn.execute('''
-                        INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
-                        VALUES (?, ?, ?, ?, ?)
-                    ''', (account_id, account_email, 'scheduled', 'success' if success else 'failed', error_msg))
-
-                    if success:
-                        conn.execute('''
-                            UPDATE accounts
-                            SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                            WHERE id = ?
-                        ''', (account_id,))
-
-                    conn.commit()
-                except Exception as e:
-                    print(f"记录刷新结果失败: {str(e)}")
-
-                if success:
-                    success_count += 1
-                else:
-                    failed_count += 1
-                    failed_list.append({
-                        'id': account_id,
-                        'email': account_email,
-                        'error': error_msg
-                    })
-
-                if index < total and delay_seconds > 0:
-                    yield f"data: {json.dumps({'type': 'delay', 'seconds': delay_seconds})}\n\n"
-                    time.sleep(delay_seconds)
-
-            yield f"data: {json.dumps({'type': 'complete', 'total': total, 'success_count': success_count, 'failed_count': failed_count, 'failed_list': failed_list})}\n\n"
+            for event in _refresh_accounts_generator(
+                conn=conn,
+                accounts=accounts,
+                refresh_type='scheduled',
+                delay_seconds=config['delay_seconds'],
+                resume=resume,
+                max_workers=config['max_workers'],
+                batch_size=config['batch_size'],
+                scope_label='scheduled'
+            ):
+                yield f"data: {json.dumps(event)}\n\n"
 
         finally:
             conn.close()
@@ -2614,7 +3344,7 @@ def api_get_refresh_logs():
         SELECT l.*, a.email as account_email
         FROM account_refresh_logs l
         LEFT JOIN accounts a ON l.account_id = a.id
-        WHERE l.refresh_type IN ('manual', 'scheduled')
+        WHERE l.refresh_type IN ('manual', 'scheduled', 'group')
         AND l.created_at >= datetime('now', '-6 months')
         ORDER BY l.created_at DESC
         LIMIT ? OFFSET ?
@@ -3598,6 +4328,85 @@ def api_update_settings():
 
 # ==================== 定时任务调度器 ====================
 
+SCHEDULER_INSTANCE_ID = uuid.uuid4().hex
+SCHEDULER_LOCK_KEY = "scheduler_lock"
+SCHEDULER_LOCK_TTL_SECONDS = int(os.getenv("SCHEDULER_LOCK_TTL_SECONDS", "120"))
+SCHEDULER_LOCK_HEARTBEAT_SECONDS = int(os.getenv("SCHEDULER_LOCK_HEARTBEAT_SECONDS", "60"))
+
+
+def _load_scheduler_lock(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
+    cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (SCHEDULER_LOCK_KEY,))
+    row = cursor.fetchone()
+    if not row:
+        return None
+    try:
+        return json.loads(row[0])
+    except Exception:
+        return None
+
+
+def _write_scheduler_lock(conn: sqlite3.Connection, owner_id: str) -> None:
+    payload = {
+        "owner": owner_id,
+        "updated_at": datetime.now().isoformat()
+    }
+    conn.execute('''
+        INSERT OR REPLACE INTO settings (key, value, updated_at)
+        VALUES (?, ?, CURRENT_TIMESTAMP)
+    ''', (SCHEDULER_LOCK_KEY, json.dumps(payload, ensure_ascii=True)))
+
+
+def try_acquire_scheduler_lock() -> bool:
+    """抢占调度器锁，避免多进程重复调度"""
+    conn = sqlite3.connect(DATABASE, timeout=10)
+    configure_sqlite(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        lock = _load_scheduler_lock(conn)
+        if lock:
+            updated_at = lock.get("updated_at")
+            try:
+                updated_time = datetime.fromisoformat(updated_at) if updated_at else None
+            except Exception:
+                updated_time = None
+            if updated_time and (datetime.now() - updated_time).total_seconds() < SCHEDULER_LOCK_TTL_SECONDS:
+                if lock.get("owner") != SCHEDULER_INSTANCE_ID:
+                    conn.rollback()
+                    return False
+        _write_scheduler_lock(conn, SCHEDULER_INSTANCE_ID)
+        conn.commit()
+        return True
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        return False
+    finally:
+        conn.close()
+
+
+def refresh_scheduler_lock() -> None:
+    """刷新调度器锁心跳"""
+    conn = sqlite3.connect(DATABASE, timeout=10)
+    configure_sqlite(conn)
+    try:
+        conn.execute("BEGIN IMMEDIATE")
+        lock = _load_scheduler_lock(conn)
+        if lock and lock.get("owner") == SCHEDULER_INSTANCE_ID:
+            _write_scheduler_lock(conn, SCHEDULER_INSTANCE_ID)
+            conn.commit()
+        else:
+            conn.rollback()
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+    finally:
+        conn.close()
+
+
 def init_scheduler():
     """初始化定时任务调度器"""
     try:
@@ -3606,6 +4415,20 @@ def init_scheduler():
         import atexit
 
         scheduler = BackgroundScheduler()
+
+        if not try_acquire_scheduler_lock():
+            print("⚠ 调度器锁未获取，跳过调度器启动（可能已有实例运行）")
+            return None
+
+        def add_lock_heartbeat():
+            scheduler.add_job(
+                func=refresh_scheduler_lock,
+                trigger='interval',
+                seconds=SCHEDULER_LOCK_HEARTBEAT_SECONDS,
+                id='scheduler_lock_heartbeat',
+                name='Scheduler Lock Heartbeat',
+                replace_existing=True
+            )
 
         with app.app_context():
             enable_scheduled = get_setting('enable_scheduled_refresh', 'true').lower() == 'true'
@@ -3640,6 +4463,7 @@ def init_scheduler():
                             name='Token 定时刷新',
                             replace_existing=True
                         )
+                        add_lock_heartbeat()
                         scheduler.start()
                         print(f"✓ 定时任务已启动：Cron 表达式 '{cron_expr}'")
                         atexit.register(lambda: scheduler.shutdown())
@@ -3658,6 +4482,7 @@ def init_scheduler():
                 replace_existing=True
             )
 
+            add_lock_heartbeat()
             scheduler.start()
             print(f"✓ 定时任务已启动：每天凌晨 2:00 检查刷新（周期：{refresh_interval_days} 天）")
 
@@ -3695,7 +4520,8 @@ def scheduled_refresh_task():
 
             refresh_interval_days = int(get_setting('refresh_interval_days', '30'))
 
-        conn = sqlite3.connect(DATABASE)
+        conn = sqlite3.connect(DATABASE, timeout=10)
+        configure_sqlite(conn)
         conn.row_factory = sqlite3.Row
         cursor = conn.execute('''
             SELECT MAX(created_at) as last_refresh
@@ -3724,7 +4550,8 @@ def scheduled_refresh_task():
 
 def trigger_refresh_internal():
     """内部触发刷新（不通过 HTTP）"""
-    conn = sqlite3.connect(DATABASE)
+    conn = sqlite3.connect(DATABASE, timeout=10)
+    configure_sqlite(conn)
     conn.row_factory = sqlite3.Row
 
     try:
@@ -3737,45 +4564,35 @@ def trigger_refresh_internal():
         conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
         conn.commit()
 
-        cursor = conn.execute("SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active'")
+        cursor = conn.execute(
+            "SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active' ORDER BY id"
+        )
         accounts = cursor.fetchall()
 
-        total = len(accounts)
-        success_count = 0
-        failed_count = 0
+        summary = None
+        for event in _refresh_accounts_generator(
+            conn=conn,
+            accounts=accounts,
+            refresh_type='scheduled',
+            delay_seconds=delay_seconds,
+            resume=True
+        ):
+            if event.get('type') == 'complete':
+                summary = event
 
-        for index, account in enumerate(accounts, 1):
-            account_id = account['id']
-            account_email = account['email']
-            client_id = account['client_id']
-            refresh_token = account['refresh_token']
-
-            success, error_msg = test_refresh_token(client_id, refresh_token)
-
-            conn.execute('''
-                INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
-                VALUES (?, ?, ?, ?, ?)
-            ''', (account_id, account_email, 'scheduled', 'success' if success else 'failed', error_msg))
-
-            if success:
-                conn.execute('''
-                    UPDATE accounts
-                    SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
-                    WHERE id = ?
-                ''', (account_id,))
-                success_count += 1
-            else:
-                failed_count += 1
-
-            conn.commit()
-
-            if index < total and delay_seconds > 0:
-                time.sleep(delay_seconds)
-
-        print(f"[定时任务] 刷新结果：总计 {total}，成功 {success_count}，失败 {failed_count}")
+        if summary:
+            print(f"[定时任务] 刷新结果：总计 {summary.get('total')}，成功 {summary.get('success_count')}，失败 {summary.get('failed_count')}")
 
     finally:
         conn.close()
+
+
+# 模块加载时初始化调度器（适配 Gunicorn）
+SCHEDULER = None
+if os.getenv("ENABLE_SCHEDULER", "true").lower() == "true":
+    SCHEDULER = init_scheduler()
+else:
+    print("✓ ENABLE_SCHEDULER=false，已跳过调度器启动")
 
 
 # ==================== 错误处理 ====================
@@ -3810,8 +4627,5 @@ if __name__ == '__main__':
     print(f"访问地址: http://{host}:{port}")
     print(f"运行模式: {'开发' if debug else '生产'}")
     print("=" * 60)
-
-    # 初始化定时任务
-    scheduler = init_scheduler()
 
     app.run(debug=debug, host=host, port=port)
