@@ -6,12 +6,17 @@
 依赖：
   pip install requests
 
-环境变量（最小可运行）：
-  APP_BASE_URL=http://localhost:8080
-  APP_EXTERNAL_API_KEY=<SECRET_KEY>
-  APP_LOGIN_PASSWORD=<登录密码>  # 用于读取邮箱
+最简方式：
+  在 .env 中设置：
+    SECRET_KEY=...
+    LOGIN_PASSWORD=...
 
-可选环境变量：
+脚本会读取 .env 并自动映射：
+  APP_EXTERNAL_API_KEY = SECRET_KEY
+  APP_LOGIN_PASSWORD  = LOGIN_PASSWORD
+
+可选环境变量（均有默认值）：
+  APP_BASE_URL=http://localhost:8080
   APP_GROUP_ID=1
   APP_TASK_COUNT=10
   APP_CONCURRENCY=3
@@ -34,6 +39,34 @@ from typing import Optional, Tuple
 from urllib.parse import quote
 
 import requests
+
+
+def load_dotenv_file(path: str = ".env") -> None:
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                value = value.strip().strip('"').strip("'")
+                if key and key not in os.environ:
+                    os.environ[key] = value
+    except Exception:
+        # .env 读取失败时保持静默
+        return
+
+
+load_dotenv_file()
+
+# 从 .env 兼容读取
+if "APP_EXTERNAL_API_KEY" not in os.environ and os.getenv("SECRET_KEY"):
+    os.environ["APP_EXTERNAL_API_KEY"] = os.getenv("SECRET_KEY", "")
+if "APP_LOGIN_PASSWORD" not in os.environ and os.getenv("LOGIN_PASSWORD"):
+    os.environ["APP_LOGIN_PASSWORD"] = os.getenv("LOGIN_PASSWORD", "")
 
 
 BASE_URL = os.getenv("APP_BASE_URL", "http://localhost:8080").rstrip("/")
@@ -59,9 +92,9 @@ class Task:
 
 def require_env():
     if not API_KEY:
-        raise RuntimeError("APP_EXTERNAL_API_KEY is required")
+        raise RuntimeError("APP_EXTERNAL_API_KEY is required (or set SECRET_KEY in .env)")
     if not LOGIN_PASSWORD:
-        raise RuntimeError("APP_LOGIN_PASSWORD is required for reading emails")
+        raise RuntimeError("APP_LOGIN_PASSWORD is required for reading emails (or set LOGIN_PASSWORD in .env)")
 
 
 def login(session: requests.Session) -> None:
