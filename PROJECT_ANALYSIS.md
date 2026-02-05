@@ -7,7 +7,7 @@
 
 **项目定位**
 - 提供一个 Web 管理界面，集中管理多个 Outlook 邮箱账号并查看邮件内容。
-- 支持 Microsoft Graph API + IMAP（新/旧）三种读取方式，具备标签管理、导出、定时刷新等能力。
+- 支持 Microsoft Graph API + IMAP（新/旧）三种读取方式，具备导出、定时刷新等能力。
 
 **相关文档**
 - `ARCHITECTURE.md`：组件架构图与关键数据流
@@ -68,8 +68,6 @@
 | --- | --- | --- |
 | `settings` | 全局配置 | `key`, `value`, `updated_at` |
 | `accounts` | 邮箱账号 | `email`, `password`, `client_id`, `refresh_token`, `status`, `last_refresh_at` |
-| `tags` | 标签 | `name`, `color` |
-| `account_tags` | 账号-标签关联 | `account_id`, `tag_id` |
 | `account_refresh_logs` | 刷新日志 | `account_id`, `refresh_type`, `status`, `error_message` |
 | `audit_logs` | 审计日志 | `action`, `resource_type`, `details`, `user_ip` |
 
@@ -101,9 +99,8 @@
 - 固定天数间隔检查（默认每日 2:00 检查）。
 - 自定义 Cron 表达式（`refresh_cron`）。
 
-**5) 邮箱管理与标签**
+**5) 邮箱管理**
 - 邮箱账号 CRUD，支持批量导入（格式：`email----password----client_id----refresh_token`）。
-- 标签管理与账号标签关联。
 
 **6) 导出与审计**
 - 支持导出全部账号信息（TXT）。
@@ -136,12 +133,6 @@
 - `DELETE /api/accounts/<id>`
 - `DELETE /api/accounts/email/<email>`
 - `GET /api/accounts/search`
-
-**标签**
-- `GET /api/tags`
-- `POST /api/tags`
-- `DELETE /api/tags/<id>`
-- `POST /api/accounts/tags`
 
 **邮件**
 - `GET /api/emails/<email>`

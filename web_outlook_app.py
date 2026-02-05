@@ -26,6 +26,7 @@ from email.header import decode_header
 from typing import Optional, List, Dict, Any
 from urllib.parse import quote
 from flask import Flask, render_template, request, jsonify, g, session, redirect, url_for, Response
+from werkzeug.exceptions import HTTPException
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
 import requests
@@ -412,18 +413,6 @@ def init_db():
         )
     ''')
     
-    # 创建分组表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS groups (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            description TEXT,
-            color TEXT DEFAULT '#1a1a1a',
-            is_system INTEGER DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
     # 创建邮箱账号表
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS accounts (
@@ -432,13 +421,11 @@ def init_db():
             password TEXT,
             client_id TEXT NOT NULL,
             refresh_token TEXT NOT NULL,
-            group_id INTEGER,
             remark TEXT,
             status TEXT DEFAULT 'active',
             last_refresh_at TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (group_id) REFERENCES groups (id)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     ''')
     
@@ -502,34 +489,10 @@ def init_db():
         )
     ''')
 
-    # 创建标签表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tags (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT UNIQUE NOT NULL,
-            color TEXT NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-
-    # 创建账号标签关联表
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS account_tags (
-            account_id INTEGER NOT NULL,
-            tag_id INTEGER NOT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            PRIMARY KEY (account_id, tag_id),
-            FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE,
-            FOREIGN KEY (tag_id) REFERENCES tags (id) ON DELETE CASCADE
-        )
-    ''')
-
     # 检查并添加缺失的列（数据库迁移）
     cursor.execute("PRAGMA table_info(accounts)")
     columns = [col[1] for col in cursor.fetchall()]
 
-    if 'group_id' not in columns:
-        cursor.execute('ALTER TABLE accounts ADD COLUMN group_id INTEGER DEFAULT 1')
     if 'remark' not in columns:
         cursor.execute('ALTER TABLE accounts ADD COLUMN remark TEXT')
     if 'status' not in columns:
@@ -538,13 +501,57 @@ def init_db():
         cursor.execute('ALTER TABLE accounts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
     if 'last_refresh_at' not in columns:
         cursor.execute('ALTER TABLE accounts ADD COLUMN last_refresh_at TIMESTAMP')
-    
-    # 检查 groups 表是否有 is_system 列
-    cursor.execute("PRAGMA table_info(groups)")
-    group_columns = [col[1] for col in cursor.fetchall()]
-    if 'is_system' not in group_columns:
-        cursor.execute('ALTER TABLE groups ADD COLUMN is_system INTEGER DEFAULT 0')
 
+    # 移除历史分组字段与分组表（SQLite 需要重建表）
+    if 'group_id' in columns:
+        foreign_keys = cursor.execute("PRAGMA foreign_keys").fetchone()
+        foreign_keys_on = foreign_keys[0] if foreign_keys else 0
+        cursor.execute("PRAGMA foreign_keys=OFF")
+        cursor.execute("SAVEPOINT drop_group_id")
+        try:
+            cursor.execute('DROP TABLE IF EXISTS accounts_new')
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS accounts_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    email TEXT UNIQUE NOT NULL,
+                    password TEXT,
+                    client_id TEXT NOT NULL,
+                    refresh_token TEXT NOT NULL,
+                    remark TEXT,
+                    status TEXT DEFAULT 'active',
+                    last_refresh_at TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            desired_cols = [
+                'id', 'email', 'password', 'client_id', 'refresh_token',
+                'remark', 'status', 'last_refresh_at', 'created_at', 'updated_at'
+            ]
+            copy_cols = [col for col in desired_cols if col in columns]
+            if copy_cols:
+                cols_sql = ", ".join(copy_cols)
+                cursor.execute(f'''
+                    INSERT INTO accounts_new ({cols_sql})
+                    SELECT {cols_sql} FROM accounts
+                ''')
+            cursor.execute('DROP TABLE accounts')
+            cursor.execute('ALTER TABLE accounts_new RENAME TO accounts')
+            cursor.execute("RELEASE drop_group_id")
+        except Exception:
+            cursor.execute("ROLLBACK TO drop_group_id")
+            cursor.execute("RELEASE drop_group_id")
+            raise
+        finally:
+            cursor.execute(f"PRAGMA foreign_keys={1 if foreign_keys_on else 0}")
+
+    # 移除分组表（兼容旧库残留）
+    cursor.execute('DROP TABLE IF EXISTS groups')
+
+    # 移除标签相关表（功能已移除）
+    cursor.execute('DROP TABLE IF EXISTS account_tags')
+    cursor.execute('DROP TABLE IF EXISTS tags')
+    
     # 检查 refresh_runs 表的缺失列
     cursor.execute("PRAGMA table_info(refresh_runs)")
     refresh_columns = [col[1] for col in cursor.fetchall()]
@@ -558,12 +565,6 @@ def init_db():
         cursor.execute('ALTER TABLE refresh_runs ADD COLUMN batch_size INTEGER')
     if 'delay_seconds' not in refresh_columns:
         cursor.execute('ALTER TABLE refresh_runs ADD COLUMN delay_seconds INTEGER')
-    
-    # 创建默认分组
-    cursor.execute('''
-        INSERT OR IGNORE INTO groups (name, description, color)
-        VALUES ('默认分组', '未分组的邮箱', '#666666')
-    ''')
     
     # 初始化默认设置
     # 检查是否已有密码设置
@@ -747,7 +748,7 @@ def get_login_password() -> str:
 
 # ==================== 邮箱账号操作 ====================
 
-def load_accounts(group_id: int = None) -> List[Dict]:
+def load_accounts() -> List[Dict]:
     """从数据库加载邮箱账号"""
     db = get_db()
     cursor = db.execute('''
@@ -771,80 +772,8 @@ def load_accounts(group_id: int = None) -> List[Dict]:
             except Exception:
                 pass  # 解密失败保持原值
         
-        # 加载账号标签
-        account['tags'] = get_account_tags(account['id'])
         accounts.append(account)
     return accounts
-
-
-# ==================== 标签管理 ====================
-
-def get_tags() -> List[Dict]:
-    """获取所有标签"""
-    db = get_db()
-    cursor = db.execute('SELECT * FROM tags ORDER BY created_at DESC')
-    return [dict(row) for row in cursor.fetchall()]
-
-
-def add_tag(name: str, color: str) -> Optional[int]:
-    """添加标签"""
-    db = get_db()
-    try:
-        cursor = db.execute(
-            'INSERT INTO tags (name, color) VALUES (?, ?)',
-            (name, color)
-        )
-        db.commit()
-        return cursor.lastrowid
-    except sqlite3.IntegrityError:
-        return None
-
-
-def delete_tag(tag_id: int) -> bool:
-    """删除标签"""
-    db = get_db()
-    cursor = db.execute('DELETE FROM tags WHERE id = ?', (tag_id,))
-    db.commit()
-    return cursor.rowcount > 0
-
-
-def get_account_tags(account_id: int) -> List[Dict]:
-    """获取账号的标签"""
-    db = get_db()
-    cursor = db.execute('''
-        SELECT t.*
-        FROM tags t
-        JOIN account_tags at ON t.id = at.tag_id
-        WHERE at.account_id = ?
-        ORDER BY t.created_at DESC
-    ''', (account_id,))
-    return [dict(row) for row in cursor.fetchall()]
-
-
-def add_account_tag(account_id: int, tag_id: int) -> bool:
-    """给账号添加标签"""
-    db = get_db()
-    try:
-        db.execute(
-            'INSERT OR IGNORE INTO account_tags (account_id, tag_id) VALUES (?, ?)',
-            (account_id, tag_id)
-        )
-        db.commit()
-        return True
-    except Exception:
-        return False
-
-
-def remove_account_tag(account_id: int, tag_id: int) -> bool:
-    """移除账号标签"""
-    db = get_db()
-    db.execute(
-        'DELETE FROM account_tags WHERE account_id = ? AND tag_id = ?',
-        (account_id, tag_id)
-    )
-    db.commit()
-    return True
-
 
 
 def get_account_by_email(email_addr: str) -> Optional[Dict]:
@@ -892,7 +821,7 @@ def get_account_by_id(account_id: int) -> Optional[Dict]:
 
 
 def add_account(email_addr: str, password: str, client_id: str, refresh_token: str,
-                group_id: int = 1, remark: str = '') -> bool:
+                remark: str = '') -> bool:
     """添加邮箱账号"""
     db = get_db()
     try:
@@ -901,9 +830,9 @@ def add_account(email_addr: str, password: str, client_id: str, refresh_token: s
         encrypted_refresh_token = encrypt_data(refresh_token) if refresh_token else refresh_token
 
         db.execute('''
-            INSERT INTO accounts (email, password, client_id, refresh_token, group_id, remark)
-            VALUES (?, ?, ?, ?, ?, ?)
-        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, group_id, remark))
+            INSERT INTO accounts (email, password, client_id, refresh_token, remark)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, remark))
         db.commit()
         return True
     except sqlite3.IntegrityError:
@@ -936,7 +865,6 @@ def delete_account_by_id(account_id: int) -> bool:
     db = get_db()
     try:
         db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
-        db.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
         db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
         db.execute('DELETE FROM accounts WHERE id = ?', (account_id,))
         db.commit()
@@ -953,7 +881,6 @@ def delete_account_by_email(email_addr: str) -> bool:
         if row:
             account_id = row['id']
             db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
-            db.execute('DELETE FROM account_tags WHERE account_id = ?', (account_id,))
             db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
         db.execute('DELETE FROM accounts WHERE email = ?', (email_addr,))
         db.commit()
@@ -1640,6 +1567,7 @@ def api_export_all_accounts():
 
 
 @app.route('/api/external/checkout', methods=['POST'])
+@csrf_exempt
 @external_api_required
 def api_external_checkout_account():
     """外部领取邮箱（简化版）"""
@@ -1694,6 +1622,7 @@ def api_external_checkout_account():
 
 
 @app.route('/api/external/checkout/complete', methods=['POST'])
+@csrf_exempt
 @external_api_required
 def api_external_checkout_complete():
     """外部完成/释放邮箱"""
@@ -1752,7 +1681,6 @@ def api_get_accounts():
     offset = request.args.get('offset', default=0, type=int)
     sort_by = request.args.get('sort_by', default='refresh_time')
     sort_order = request.args.get('sort_order', default='asc')
-    tag_ids_param = request.args.get('tag_ids', '').strip()
     refresh_status = request.args.get('refresh_status', '').strip().lower()
 
     if limit is None:
@@ -1774,24 +1702,11 @@ def api_get_accounts():
     sort_field = sort_fields.get(sort_by, sort_fields['refresh_time'])
     sort_dir = 'DESC' if str(sort_order).lower() == 'desc' else 'ASC'
 
-    tag_ids = []
-    if tag_ids_param:
-        for part in tag_ids_param.split(','):
-            part = part.strip()
-            if part.isdigit():
-                tag_ids.append(int(part))
-
     db = get_db()
 
     # 组装 WHERE 条件
     where_clauses = []
     params = []
-    if tag_ids:
-        placeholders = ",".join(["?"] * len(tag_ids))
-        where_clauses.append(
-            f"a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
-        )
-        params.extend(tag_ids)
     if refresh_status in ('success', 'failed'):
         where_clauses.append("l.status = ?")
         params.append(refresh_status)
@@ -1837,27 +1752,6 @@ def api_get_accounts():
     '''
     accounts = db.execute(accounts_sql, params + [limit, offset]).fetchall()
 
-    account_ids = [row['id'] for row in accounts]
-    tags_map = {}
-    if account_ids:
-        placeholders = ",".join(["?"] * len(account_ids))
-        tag_rows = db.execute(
-            f'''
-                SELECT at.account_id, t.id, t.name, t.color
-                FROM account_tags at
-                JOIN tags t ON at.tag_id = t.id
-                WHERE at.account_id IN ({placeholders})
-                ORDER BY t.created_at DESC
-            ''',
-            account_ids
-        ).fetchall()
-        for row in tag_rows:
-            tags_map.setdefault(row['account_id'], []).append({
-                'id': row['id'],
-                'name': row['name'],
-                'color': row['color']
-            })
-
     safe_accounts = []
     for acc in accounts:
         safe_accounts.append({
@@ -1870,8 +1764,7 @@ def api_get_accounts():
             'last_refresh_status': acc['last_refresh_status'],
             'last_refresh_error': acc['last_refresh_error'],
             'created_at': acc['created_at'] if acc['created_at'] else '',
-            'updated_at': acc['updated_at'] if acc['updated_at'] else '',
-            'tags': tags_map.get(acc['id'], [])
+            'updated_at': acc['updated_at'] if acc['updated_at'] else ''
         })
 
     return jsonify({
@@ -1883,68 +1776,6 @@ def api_get_accounts():
     })
 
 
-# ==================== 标签 API ====================
-
-@app.route('/api/tags', methods=['GET'])
-@login_required
-def api_get_tags():
-    """获取所有标签"""
-    return jsonify({'success': True, 'tags': get_tags()})
-
-
-@app.route('/api/tags', methods=['POST'])
-@login_required
-def api_add_tag():
-    """添加标签"""
-    data = request.json
-    name = sanitize_input(data.get('name', '').strip(), max_length=50)
-    color = data.get('color', '#1a1a1a')
-
-    if not name:
-        return jsonify({'success': False, 'error': '标签名称不能为空'})
-
-    tag_id = add_tag(name, color)
-    if tag_id:
-        return jsonify({'success': True, 'tag': {'id': tag_id, 'name': name, 'color': color}})
-    else:
-        return jsonify({'success': False, 'error': '标签名称已存在'})
-
-
-@app.route('/api/tags/<int:tag_id>', methods=['DELETE'])
-@login_required
-def api_delete_tag(tag_id):
-    """删除标签"""
-    if delete_tag(tag_id):
-        return jsonify({'success': True, 'message': '标签已删除'})
-    else:
-        return jsonify({'success': False, 'error': '删除失败'})
-
-
-@app.route('/api/accounts/tags', methods=['POST'])
-@login_required
-def api_batch_manage_tags():
-    """批量管理账号标签"""
-    data = request.json
-    account_ids = data.get('account_ids', [])
-    tag_id = data.get('tag_id')
-    action = data.get('action')  # add, remove
-
-    if not account_ids or not tag_id or not action:
-        return jsonify({'success': False, 'error': '参数不完整'})
-
-    count = 0
-    for acc_id in account_ids:
-        if action == 'add':
-            if add_account_tag(acc_id, tag_id):
-                count += 1
-        elif action == 'remove':
-            if remove_account_tag(acc_id, tag_id):
-                count += 1
-
-    return jsonify({'success': True, 'message': f'成功处理 {count} 个账号'})
-
-
-
 @app.route('/api/accounts/search', methods=['GET'])
 @login_required
 def api_search_accounts():
@@ -1954,7 +1785,6 @@ def api_search_accounts():
     offset = request.args.get('offset', default=0, type=int)
     sort_by = request.args.get('sort_by', default='created_at')
     sort_order = request.args.get('sort_order', default='desc')
-    tag_ids_param = request.args.get('tag_ids', '').strip()
     refresh_status = request.args.get('refresh_status', '').strip().lower()
 
     if not query:
@@ -1980,19 +1810,6 @@ def api_search_accounts():
 
     db = get_db()
     like_query = f'%{query}%'
-    tag_ids = []
-    if tag_ids_param:
-        for part in tag_ids_param.split(','):
-            part = part.strip()
-            if part.isdigit():
-                tag_ids.append(int(part))
-    tag_filter_sql = ""
-    tag_filter_params = []
-    if tag_ids:
-        placeholders = ",".join(["?"] * len(tag_ids))
-        tag_filter_sql = f" AND a.id IN (SELECT account_id FROM account_tags WHERE tag_id IN ({placeholders}))"
-        tag_filter_params = tag_ids
-
     status_filter_sql = ""
     status_filter_params = []
     if refresh_status in ('success', 'failed'):
@@ -2005,8 +1822,6 @@ def api_search_accounts():
         WITH matched AS (
             SELECT DISTINCT a.id
             FROM accounts a
-            LEFT JOIN account_tags at ON a.id = at.account_id
-            LEFT JOIN tags t ON at.tag_id = t.id
             LEFT JOIN (
                 SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
                 FROM account_refresh_logs l1
@@ -2016,20 +1831,17 @@ def api_search_accounts():
                     GROUP BY account_id
                 ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
             ) l ON a.id = l.account_id
-            WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
-            {tag_filter_sql}
+            WHERE (a.email LIKE ? OR a.remark LIKE ?)
             {status_filter_sql}
         )
         SELECT COUNT(*) as total FROM matched
-    ''', (like_query, like_query, like_query, *tag_filter_params, *status_filter_params)).fetchone()
+    ''', (like_query, like_query, *status_filter_params)).fetchone()
     total = count_row['total'] if count_row else 0
 
     rows = db.execute(f'''
         WITH matched AS (
             SELECT DISTINCT a.id
             FROM accounts a
-            LEFT JOIN account_tags at ON a.id = at.account_id
-            LEFT JOIN tags t ON at.tag_id = t.id
             LEFT JOIN (
                 SELECT l1.account_id, l1.status, l1.error_message, l1.created_at
                 FROM account_refresh_logs l1
@@ -2039,8 +1851,7 @@ def api_search_accounts():
                     GROUP BY account_id
                 ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
             ) l ON a.id = l.account_id
-            WHERE (a.email LIKE ? OR a.remark LIKE ? OR t.name LIKE ?)
-            {tag_filter_sql}
+            WHERE (a.email LIKE ? OR a.remark LIKE ?)
             {status_filter_sql}
         )
         SELECT a.*,
@@ -2058,28 +1869,7 @@ def api_search_accounts():
         ) l ON a.id = l.account_id
         ORDER BY {sort_field} {sort_dir}, a.id ASC
         LIMIT ? OFFSET ?
-    ''', (like_query, like_query, like_query, *tag_filter_params, *status_filter_params, limit, offset)).fetchall()
-
-    account_ids = [row['id'] for row in rows]
-    tags_map = {}
-    if account_ids:
-        placeholders = ",".join(["?"] * len(account_ids))
-        tag_rows = db.execute(
-            f'''
-                SELECT at.account_id, t.id, t.name, t.color
-                FROM account_tags at
-                JOIN tags t ON at.tag_id = t.id
-                WHERE at.account_id IN ({placeholders})
-                ORDER BY t.created_at DESC
-            ''',
-            account_ids
-        ).fetchall()
-        for row in tag_rows:
-            tags_map.setdefault(row['account_id'], []).append({
-                'id': row['id'],
-                'name': row['name'],
-                'color': row['color']
-            })
+    ''', (like_query, like_query, *status_filter_params, limit, offset)).fetchall()
 
     safe_accounts = []
     for acc in rows:
@@ -2091,7 +1881,6 @@ def api_search_accounts():
             'status': acc['status'] if acc['status'] else 'active',
             'created_at': acc['created_at'] if acc['created_at'] else '',
             'updated_at': acc['updated_at'] if acc['updated_at'] else '',
-            'tags': tags_map.get(acc['id'], []),
             'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
             'last_refresh_status': acc['last_refresh_status'],
             'last_refresh_error': acc['last_refresh_error']
@@ -2170,7 +1959,6 @@ def api_add_account():
     """添加账号"""
     data = request.json
     account_str = data.get('account_string', '')
-    group_id = 1
     
     if not account_str:
         return jsonify({'success': False, 'error': '请输入账号信息'})
@@ -2192,7 +1980,7 @@ def api_add_account():
             continue
 
         if add_account(parsed['email'], parsed['password'],
-                       parsed['client_id'], parsed['refresh_token'], group_id):
+                       parsed['client_id'], parsed['refresh_token']):
             added += 1
         else:
             skipped += 1
@@ -2320,7 +2108,6 @@ def api_batch_delete_accounts():
     try:
         placeholders = ",".join(["?"] * len(clean_ids))
         db.execute(f'DELETE FROM account_leases WHERE account_id IN ({placeholders})', clean_ids)
-        db.execute(f'DELETE FROM account_tags WHERE account_id IN ({placeholders})', clean_ids)
         db.execute(f'DELETE FROM account_refresh_logs WHERE account_id IN ({placeholders})', clean_ids)
         db.execute(f'DELETE FROM accounts WHERE id IN ({placeholders})', clean_ids)
         db.commit()
@@ -4058,6 +3845,12 @@ def bad_request(error):
 @app.errorhandler(Exception)
 def handle_exception(error):
     """处理未捕获的异常"""
+    if isinstance(error, HTTPException):
+        # 保持 HTTPException 原本状态码，避免 404 被包装成 500
+        if request.path.startswith('/api/'):
+            return jsonify({'success': False, 'error': error.description}), error.code
+        return error
+
     print(f"Unhandled exception: {error}")
     import traceback
     traceback.print_exc()
