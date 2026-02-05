@@ -131,165 +131,6 @@
             height: calc(100vh - 56px);
         }
 
-        .group-panel {
-            width: 200px;
-            background-color: #fafafa;
-            border-right: 1px solid #e5e5e5;
-            display: flex;
-            flex-direction: column;
-            flex-shrink: 0;
-        }
-
-        .panel-header {
-            padding: 0 16px;
-            height: 52px;
-            border-bottom: 1px solid #e5e5e5;
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .panel-title {
-            font-size: 14px;
-            font-weight: 600;
-            color: #1a1a1a;
-        }
-
-        .panel-action-btn {
-            background: none;
-            border: none;
-            color: #666;
-            cursor: pointer;
-            font-size: 18px;
-            padding: 2px 6px;
-            border-radius: 4px;
-            line-height: 1;
-        }
-
-        .panel-action-btn:hover {
-            background-color: #e5e5e5;
-        }
-
-        .group-list {
-            flex: 1;
-            overflow-y: auto;
-        }
-
-        .group-item {
-            padding: 10px 16px;
-            cursor: pointer;
-            transition: background-color 0.15s;
-            border-left: 3px solid transparent;
-        }
-
-        .group-item:hover {
-            background-color: #f0f0f0;
-        }
-
-        .group-item.active {
-            background-color: #e8e8e8;
-            border-left-color: #1a1a1a;
-        }
-
-        .group-row-1 {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-bottom: 6px;
-        }
-
-        .group-color {
-            width: 10px;
-            height: 10px;
-            border-radius: 3px;
-            flex-shrink: 0;
-        }
-
-        .group-name {
-            font-size: 14px;
-            font-weight: 500;
-            color: #1a1a1a;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-            flex: 1;
-        }
-
-        .group-row-2 {
-            display: flex;
-            align-items: center;
-            justify-content: space-between;
-            padding-left: 20px;
-        }
-
-        .group-counts {
-            display: flex;
-            align-items: center;
-            flex-wrap: wrap;
-            gap: 4px;
-        }
-
-        .group-count {
-            font-size: 12px;
-            color: #999;
-            background-color: #f0f0f0;
-            padding: 2px 8px;
-            border-radius: 10px;
-        }
-
-        .group-item.active .group-count {
-            background-color: #d8d8d8;
-        }
-
-        .group-status-count {
-            font-size: 11px;
-            padding: 2px 6px;
-            border-radius: 10px;
-            background-color: #f5f5f5;
-            color: #777;
-        }
-
-        .group-status-count.success {
-            background-color: #e8f5e9;
-            color: #2e7d32;
-        }
-
-        .group-status-count.failed {
-            background-color: #ffebee;
-            color: #c62828;
-        }
-
-        .group-status-count.unknown {
-            background-color: #f1f5f9;
-            color: #64748b;
-        }
-
-        .group-actions {
-            display: flex;
-            gap: 4px;
-            opacity: 0;
-            transition: opacity 0.15s;
-        }
-
-        .group-item:hover .group-actions {
-            opacity: 1;
-        }
-
-        .group-action-btn {
-            background: none;
-            border: none;
-            color: #999;
-            cursor: pointer;
-            padding: 2px 6px;
-            font-size: 12px;
-            border-radius: 4px;
-        }
-
-        .group-action-btn:hover {
-            background-color: #e0e0e0;
-            color: #666;
-        }
-
         /* 邮箱账号面板 */
         .account-panel {
             width: 260px;
@@ -317,11 +158,6 @@
             gap: 8px;
         }
 
-        .account-panel-title .group-color {
-            width: 12px;
-            height: 12px;
-        }
-
         .search-container {
             padding: 8px 16px;
             border-bottom: 1px solid #e5e5e5;
@@ -344,15 +180,6 @@
 
         .search-input:focus {
             border-color: #1a1a1a;
-        }
-
-        .search-select {
-            padding: 7px 10px;
-            border: 1px solid #e5e5e5;
-            border-radius: 6px;
-            font-size: 12px;
-            color: #333;
-            background: #ffffff;
         }
 
         .search-cache-stats {
@@ -532,37 +359,6 @@
             margin-left: 8px;
             background-color: #f0f0f0;
             color: #999;
-        }
-
-        .tag-badge {
-            display: inline-flex;
-            align-items: center;
-            padding: 2px 8px;
-            border-radius: 12px;
-            font-size: 11px;
-            font-weight: 500;
-            margin-right: 4px;
-            margin-top: 2px;
-            color: white;
-            line-height: 1.4;
-        }
-
-        .account-tags {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 4px;
-            margin-top: 4px;
-        }
-
-        .account-actions {
-            display: flex;
-            gap: 8px;
-            opacity: 0;
-            transition: opacity 0.15s;
-        }
-
-        .account-item:hover .account-actions {
-            opacity: 1;
         }
 
         .account-action-btn {
@@ -1362,10 +1158,6 @@
 
         /* 响应式 */
         @media (max-width: 1200px) {
-            .group-panel {
-                width: 180px;
-            }
-
             .account-panel {
                 width: 220px;
             }
@@ -1376,10 +1168,6 @@
         }
 
         @media (max-width: 1024px) {
-            .group-panel {
-                width: 160px;
-            }
-
             .account-panel {
                 width: 200px;
             }
@@ -1391,17 +1179,15 @@
 
         @media (max-width: 768px) {
 
-            .group-panel,
             .account-panel {
                 position: fixed;
-                left: -280px;
+                left: -320px;
                 top: 56px;
                 height: calc(100vh - 56px);
                 z-index: 50;
                 transition: left 0.3s;
             }
 
-            .group-panel.show,
             .account-panel.show {
                 left: 0;
             }
@@ -1550,7 +1336,6 @@ select:focus-visible {
     overflow: hidden;
 }
 
-.group-panel,
 .account-panel,
 .email-list-panel,
 .email-detail-panel {
@@ -1614,12 +1399,52 @@ select:focus {
 }
 
 .sort-control {
-    padding: 10px 16px;
+    padding: 8px 12px;
     border-bottom: 1px solid var(--border);
     display: flex;
     align-items: center;
     gap: 8px;
     background-color: #f4fffc;
+}
+
+.account-panel {
+    width: 300px;
+    border-right: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(240, 253, 250, 0.6) 0%, rgba(255, 255, 255, 0.98) 100%);
+}
+
+.account-panel-header {
+    padding: 0 14px;
+    height: 56px;
+}
+
+.search-container {
+    padding: 10px 12px;
+    background: rgba(240, 253, 250, 0.55);
+    border-bottom: 1px solid var(--border);
+}
+
+.status-filter {
+    padding: 8px 12px;
+    background: rgba(240, 253, 250, 0.5);
+    border-bottom: 1px solid var(--border);
+}
+
+.search-container,
+.sort-control,
+.status-filter {
+    margin: 8px 10px 0;
+    border-radius: 12px;
+    border: 1px solid var(--border);
+    box-shadow: 0 6px 12px rgba(15, 118, 110, 0.06);
+}
+
+.account-list {
+    padding: 10px 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    background: radial-gradient(circle at 20% 0%, rgba(13, 148, 136, 0.06), transparent 48%);
 }
 
 .sort-label {
@@ -1661,28 +1486,199 @@ select:focus {
     background: linear-gradient(135deg, var(--primary-strong) 0%, var(--primary) 100%);
 }
 
-.group-item,
-.account-item,
+.account-panel-footer {
+    padding: 16px 14px 18px;
+    border-top: 1px solid var(--border);
+    background: linear-gradient(180deg, rgba(240, 253, 250, 0.6) 0%, #ffffff 100%);
+}
+
+.account-item {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    align-items: start;
+    gap: 8px;
+    padding: 8px 10px;
+    border: 1px solid rgba(13, 148, 136, 0.16);
+    border-radius: 12px;
+    background-color: #ffffff;
+    box-shadow: 0 6px 12px rgba(13, 148, 136, 0.06);
+    transition: box-shadow 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.account-item:hover {
+    box-shadow: 0 10px 16px rgba(13, 148, 136, 0.14);
+    border-color: rgba(13, 148, 136, 0.3);
+}
+
+.account-item.active {
+    background: rgba(236, 253, 249, 0.9);
+    border-color: var(--primary);
+    box-shadow: 0 12px 20px rgba(13, 148, 136, 0.16);
+}
+
+.account-select {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding-top: 2px;
+}
+
+.account-select input {
+    width: 14px;
+    height: 14px;
+    cursor: pointer;
+}
+
+.account-main {
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.account-top {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    min-width: 0;
+}
+
+.account-email {
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.1px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin-bottom: 0;
+}
+
+.account-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 6px;
+    border-radius: 999px;
+    background: rgba(13, 148, 136, 0.1);
+    color: var(--primary-strong);
+    font-size: 10px;
+    font-weight: 600;
+}
+
+.account-sub {
+    display: flex;
+    align-items: center;
+    flex-wrap: nowrap;
+    gap: 6px;
+    font-size: 10.5px;
+    min-width: 0;
+    overflow: hidden;
+}
+
+.account-remark {
+    color: var(--muted);
+    line-height: 1.4;
+    max-width: 140px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.account-refresh-time {
+    color: #7c8b90;
+    white-space: nowrap;
+}
+
+.account-ops {
+    position: relative;
+    display: flex;
+    align-items: center;
+    opacity: 0.7;
+    transition: opacity 0.2s ease;
+}
+
+.account-item:hover .account-ops {
+    opacity: 1;
+}
+
+.account-more-btn {
+    width: 24px;
+    height: 24px;
+    border-radius: 8px;
+    border: 1px solid var(--border);
+    background: #ffffff;
+    color: var(--primary-strong);
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-size: 12px;
+}
+
+.account-more-btn:hover {
+    border-color: rgba(13, 148, 136, 0.45);
+    background: rgba(13, 148, 136, 0.12);
+}
+
+.account-menu {
+    position: absolute;
+    right: 0;
+    top: 30px;
+    display: none;
+    flex-direction: column;
+    min-width: 120px;
+    padding: 4px;
+    border-radius: 10px;
+    background: #ffffff;
+    border: 1px solid var(--border);
+    box-shadow: var(--shadow-sm);
+    z-index: 5;
+}
+
+.account-menu.show {
+    display: flex;
+}
+
+.account-menu .account-action-btn {
+    width: 100%;
+    text-align: left;
+    padding: 6px 8px;
+    border-radius: 8px;
+    border: none;
+    background: transparent;
+    color: var(--text);
+    font-size: 11px;
+    cursor: pointer;
+}
+
+.account-menu .account-action-btn:hover {
+    background: rgba(13, 148, 136, 0.12);
+}
+
+.account-menu .account-action-btn.delete {
+    color: var(--danger);
+}
+
+.account-action-btn.inline-error {
+    padding: 1px 6px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(220, 38, 38, 0.12);
+    color: var(--danger);
+    font-size: 10px;
+    cursor: pointer;
+}
+
 .email-item {
     border-left-color: transparent;
 }
 
-.group-item:hover,
-.account-item:hover,
 .email-item:hover {
     background-color: rgba(13, 148, 136, 0.08);
 }
 
-.group-item.active,
-.account-item.active,
 .email-item.active {
     background-color: rgba(13, 148, 136, 0.14);
     border-left-color: var(--primary);
-}
-
-.tag-badge {
-    border-radius: 999px;
-    font-weight: 600;
 }
 
 .folder-tabs {
@@ -1712,12 +1708,44 @@ select:focus {
     background-color: #ffffff;
 }
 
+@media (max-width: 1200px) {
+    .account-panel {
+        width: 280px;
+    }
+    .email-list-panel {
+        width: 340px;
+    }
+}
+
+@media (max-width: 1024px) {
+    .account-panel {
+        width: 240px;
+    }
+    .email-list-panel {
+        width: 300px;
+    }
+}
+
 .batch-btn.danger {
     background-color: var(--danger);
 }
 
 .batch-btn.danger:hover {
     background-color: #b91c1c;
+}
+
+.batch-action-btn {
+    padding: 4px 10px;
+    font-size: 11px;
+    border-radius: 10px;
+}
+
+#batchActionBar .btn {
+    min-height: 26px;
+}
+
+#batchActionBar {
+    flex-wrap: wrap;
 }
 
 .modal-content {
@@ -1758,7 +1786,6 @@ select:focus {
         height: calc(100vh - 94px);
     }
 
-    .group-panel,
     .account-panel {
         top: 84px;
         height: calc(100vh - 94px);
@@ -1807,9 +1834,6 @@ select:focus {
                     <span id="currentGroupName">邮箱账号</span>
                 </div>
                 <div style="margin-left: auto;">
-                    <button class="panel-action-btn" onclick="showTagManagementModal()" title="管理标签">
-                        标签
-                    </button>
                     <button class="panel-action-btn" onclick="showAddAccountModal()" title="导入账号">
                         <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor">
                             <path fill-rule="evenodd"
@@ -1831,7 +1855,6 @@ select:focus {
                     <button class="sort-btn" data-sort="email" onclick="sortAccounts('email')">
                         邮箱名
                     </button>
-                    <!-- Tag Filter moved to new row -->
                 </div>
             </div>
             <div class="status-filter" id="statusFilter">
@@ -1841,11 +1864,6 @@ select:focus {
                 <button class="status-filter-btn" data-status="failed" onclick="setRefreshStatusFilter('failed')">失败</button>
                 <button class="status-filter-btn" data-status="unknown" onclick="setRefreshStatusFilter('unknown')">未刷新</button>
             </div>
-            <!-- Tag Filter Row -->
-            <div id="tagFilterContainer"
-                style="padding: 8px 16px; border-bottom: 1px solid #e5e5e5; display: flex; flex-wrap: wrap; gap: 8px; background-color: #fafafa; display: none;">
-                <!-- Tags checkboxes will be rendered here -->
-            </div>
             <div class="account-list" id="accountList">
                 <div class="empty-state">
                     <div class="empty-state-icon">邮箱</div>
@@ -1854,16 +1872,14 @@ select:focus {
             </div>
             <!-- 批量操作栏 -->
             <div id="batchActionBar"
-                style="display: none; padding: 8px 16px; border-top: 1px solid #e5e5e5; background: #f8f9fa; gap: 8px; align-items: center;">
-                <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: #666;">
+                style="display: none; padding: 6px 10px; border-top: 1px solid #e5e5e5; background: #f8f9fa; gap: 6px; align-items: center;">
+                <label style="display: flex; align-items: center; gap: 6px; font-size: 11px; color: #666;">
                     <input type="checkbox" id="selectAllCheckbox" onclick="toggleSelectAllVisible(this)">
                     全选当前页
                 </label>
-                <span id="selectedCount" style="font-size: 12px; color: #666;">已选 0 项</span>
+                <span id="selectedCount" style="font-size: 11px; color: #666;">已选 0 项</span>
                 <div style="flex: 1;"></div>
-                <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('add')">打标签</button>
-                <button class="btn btn-sm btn-secondary" onclick="showBatchTagModal('remove')">去标签</button>
-                <button class="btn btn-sm btn-danger" onclick="deleteSelectedAccounts()">删除选中</button>
+                <button class="btn btn-sm btn-danger batch-action-btn" onclick="deleteSelectedAccounts()">删除选中</button>
             </div>
             <div class="account-pagination" id="accountPagination" style="display: none;">
                 <button class="page-btn" id="accountPrevPage" onclick="changeAccountPage(-1)">上一页</button>
@@ -2298,57 +2314,6 @@ select:focus {
         </div>
     </div>
 
-    <!-- 标签管理模态框 -->
-    <div class="modal" id="tagManagementModal" onclick="if(event.target === this) hideTagManagementModal()">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>标签 标签管理</h3>
-                <button class="modal-close" onclick="hideTagManagementModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">新建标签</label>
-                    <div style="display: flex; gap: 8px;">
-                        <input type="text" class="form-input" id="newTagName" placeholder="标签名称" style="flex: 1;">
-                        <input type="color" class="form-control form-control-color" id="newTagColor" value="#563d7c"
-                            title="选择颜色" style="width: 50px; padding: 0;">
-                        <button class="btn btn-primary" onclick="createTag()">添加</button>
-                    </div>
-                </div>
-
-                <div class="form-group">
-                    <label class="form-label">已有标签</label>
-                    <div id="tagList"
-                        style="display: flex; flex-direction: column; gap: 8px; max-height: 300px; overflow-y: auto;">
-                        <!-- 标签列表动态加载 -->
-                        <div style="text-align: center; color: #999; padding: 20px;">加载中...</div>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- 批量打标模态框 -->
-    <div class="modal" id="batchTagModal" onclick="if(event.target === this) hideBatchTagModal()">
-        <div class="modal-content" style="width: 400px;">
-            <div class="modal-header">
-                <h3 id="batchTagTitle">批量打标</h3>
-                <button class="modal-close" onclick="hideBatchTagModal()">&times;</button>
-            </div>
-            <div class="modal-body">
-                <div class="form-group">
-                    <label class="form-label">选择标签</label>
-                    <select class="form-select" id="batchTagSelect">
-                        <option value="">请选择标签...</option>
-                    </select>
-                </div>
-            </div>
-            <div class="modal-footer">
-                <button class="btn btn-secondary" onclick="hideBatchTagModal()">取消</button>
-                <button class="btn btn-primary" onclick="confirmBatchTag()">确定</button>
-            </div>
-        </div>
-    </div>
     <!-- Error 详情模态框 -->
     <div class="modal" id="errorDetailModal" onclick="if(event.target === this) hideErrorDetailModal()">
         <div class="modal-content" style="width: 700px; max-width: 90vw;">
@@ -2540,9 +2505,6 @@ select:focus {
 
             closeAllModals(); // 修复：应用启动时关闭所有模态框，防止浏览器缓存导致残留的模态框背景层
             loadAccounts(true, 0);
-            if (typeof loadTags === 'function') {
-                loadTags();
-            }
             initEmailListScroll();
 
             // 绑定搜索框事件
@@ -2877,8 +2839,6 @@ ${details}
                 accountsPaging.offset = Math.max(0, offsetOverride);
             }
 
-            const tagIds = getSelectedTagIds();
-            const tagKey = tagIds.sort((a, b) => a - b).join(',');
             const statusFilter = currentRefreshStatus;
 
             const cached = accountsCache;
@@ -2887,7 +2847,6 @@ ${details}
                 cached.limit === accountsPaging.limit &&
                 cached.sortBy === currentSortBy &&
                 cached.sortOrder === currentSortOrder &&
-                cached.tagKey === tagKey &&
                 cached.statusFilter === statusFilter
             ) {
                 renderAccountList(cached.items, accountsPaging.offset);
@@ -2904,9 +2863,6 @@ ${details}
                     sort_by: currentSortBy,
                     sort_order: currentSortOrder
                 });
-                if (tagIds.length > 0) {
-                    params.append('tag_ids', tagIds.join(','));
-                }
                 if (statusFilter && statusFilter !== 'all') {
                     params.append('refresh_status', statusFilter);
                 }
@@ -2927,7 +2883,6 @@ ${details}
                         offset: accountsPaging.offset,
                         sortBy: currentSortBy,
                         sortOrder: currentSortOrder,
-                        tagKey,
                         statusFilter
                     };
                     renderAccountList(data.accounts, accountsPaging.offset);
@@ -2936,12 +2891,6 @@ ${details}
             } catch (error) {
                 container.innerHTML = '<div class="empty-state"><div class="empty-state-text">加载失败</div></div>';
             }
-        }
-
-        // 获取当前选中的标签 ID 列表
-        function getSelectedTagIds() {
-            const checkedBoxes = document.querySelectorAll('.tag-filter-checkbox:checked');
-            return Array.from(checkedBoxes).map(cb => parseInt(cb.value)).filter(Boolean);
         }
 
         // 渲染邮箱列表
@@ -2961,36 +2910,34 @@ ${details}
             container.innerHTML = accounts.map((acc, index) => `
                 <div class="account-item ${currentAccount === acc.email ? 'active' : ''} ${acc.status === 'inactive' ? 'inactive' : ''}"
                      onclick="selectAccount('${escapeJs(acc.email)}')">
-                    <div style="display: flex; align-items: flex-start; gap: 10px;">
-                        <input type="checkbox" class="account-select-checkbox" value="${acc.id}" 
-                               onclick="event.stopPropagation(); updateBatchActionBar()"
-                               style="margin-top: 6px; cursor: pointer;">
-                        <div style="flex: 1; min-width: 0;">
-                            <div class="account-email" title="${escapeHtml(acc.email)}" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; ${acc.last_refresh_status === 'failed' ? 'color: #dc3545; font-weight: 700;' : ''}">
-                                <span class="account-number">${startIndex + index + 1}.</span> ${escapeHtml(acc.email)}
-                                ${acc.status === 'inactive' ? '<span class="account-status-tag">已停用</span>' : ''}
-                            </div>
-                            ${acc.remark && acc.remark.trim() ? `<div class="account-remark" title="${escapeHtml(acc.remark)}">备注 ${escapeHtml(acc.remark)}</div>` : ''}
-                            
-                            <div class="account-tags">
-                                ${(acc.tags || []).map(tag => `
-                                    <span class="tag-badge" style="background-color: ${tag.color}">
-                                        ${escapeHtml(tag.name)}
-                                    </span>
-                                `).join('')}
-                            </div>
-                            
-                            <div class="account-refresh-time" style="font-size: 11px; color: ${acc.last_refresh_status === 'failed' ? '#dc3545' : '#999'}; margin-top: 4px; padding-left: 0; display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
-                                <span>上次刷新 ${formatRelativeTime(acc.last_refresh_at)}</span>
-                                ${acc.last_refresh_status === 'failed' ? '<button class="account-action-btn" onclick="event.stopPropagation(); showRefreshError(' + acc.id + ', \'' + escapeJs(acc.last_refresh_error || '未知错误') + '\', \'' + escapeJs(acc.email) + '\')" style="padding: 2px 6px; font-size: 10px; background-color: #dc3545; color: white; border: none; border-radius: 3px; cursor: pointer;">查看错误</button>' : ''}
-                            </div>
+                    <label class="account-select">
+                        <input type="checkbox" class="account-select-checkbox" value="${acc.id}"
+                               onclick="event.stopPropagation(); updateBatchActionBar()">
+                    </label>
+                    <div class="account-main">
+                        <div class="account-top">
+                            <span class="account-number">${startIndex + index + 1}</span>
+                            <span class="account-email" title="${escapeHtml(acc.email)}" style="${acc.last_refresh_status === 'failed' ? 'color: #dc3545;' : ''}">
+                                ${escapeHtml(acc.email)}
+                            </span>
+                            ${acc.status === 'inactive' ? '<span class="account-status-tag">已停用</span>' : ''}
+                        </div>
+                        <div class="account-sub">
+                            <span class="account-refresh-time" style="${acc.last_refresh_status === 'failed' ? 'color: #dc3545;' : ''}">
+                                上次刷新 ${formatRelativeTime(acc.last_refresh_at)}
+                            </span>
+                            ${acc.last_refresh_status === 'failed' ? '<button class="account-action-btn inline-error" onclick="event.stopPropagation(); showRefreshError(' + acc.id + ', \'' + escapeJs(acc.last_refresh_error || '未知错误') + '\', \'' + escapeJs(acc.email) + '\')">错误</button>' : ''}
+                            ${acc.remark && acc.remark.trim() ? `<span class="account-remark" title="${escapeHtml(acc.remark)}">备注 ${escapeHtml(acc.remark)}</span>` : ''}
                         </div>
                     </div>
-                    <div class="account-actions">
-                        <button class="account-action-btn" onclick="event.stopPropagation(); copyEmail('${escapeJs(acc.email)}')" title="复制邮箱">复制</button>
-                        <button class="account-action-btn" onclick="event.stopPropagation(); toggleAccountStatus(${acc.id}, '${escapeJs(acc.status || 'active')}')" title="${acc.status === 'inactive' ? '启用' : '停用'}">${acc.status === 'inactive' ? '启用' : '停用'}</button>
-                        <button class="account-action-btn" onclick="event.stopPropagation(); showEditAccountModal(${acc.id})" title="编辑">编辑</button>
-                        <button class="account-action-btn delete" onclick="event.stopPropagation(); deleteAccount(${acc.id}, '${escapeJs(acc.email)}')" title="删除">删除</button>
+                    <div class="account-ops" onclick="event.stopPropagation()">
+                        <button class="account-more-btn" onclick="event.stopPropagation(); toggleAccountMenu(${acc.id})" title="更多操作">···</button>
+                        <div class="account-menu" id="accountMenu-${acc.id}">
+                            <button class="account-action-btn" onclick="event.stopPropagation(); copyEmail('${escapeJs(acc.email)}')">复制邮箱</button>
+                            <button class="account-action-btn" onclick="event.stopPropagation(); toggleAccountStatus(${acc.id}, '${escapeJs(acc.status || 'active')}')">${acc.status === 'inactive' ? '启用邮箱' : '停用邮箱'}</button>
+                            <button class="account-action-btn" onclick="event.stopPropagation(); showEditAccountModal(${acc.id})">编辑账号</button>
+                            <button class="account-action-btn delete" onclick="event.stopPropagation(); deleteAccount(${acc.id}, '${escapeJs(acc.email)}')">删除账号</button>
+                        </div>
                     </div>
                 </div>
             `).join('');
@@ -3046,49 +2993,6 @@ ${details}
             } else {
                 loadAccounts(true, 0);
             }
-        }
-
-        // 应用筛选和排序
-        function applyFiltersAndSort(accounts) {
-            let result = [...accounts];
-
-            // 1. Tag 筛选
-            // Get checked tags
-            const checkedBoxes = document.querySelectorAll('.tag-filter-checkbox:checked');
-            const selectedTagIds = Array.from(checkedBoxes).map(cb => parseInt(cb.value));
-
-            if (selectedTagIds.length > 0) {
-                result = result.filter(acc => {
-                    if (!acc.tags) return false;
-                    // Check if account has ANY of the selected tags (OR logic)
-                    // If you want AND logic, use every() instead of some()
-                    return acc.tags.some(t => selectedTagIds.includes(t.id));
-                });
-            }
-
-            // 2. 排序
-            return result.sort((a, b) => {
-                if (currentSortBy === 'refresh_time') {
-                    const timeA = a.last_refresh_at ? new Date(a.last_refresh_at) : new Date(0);
-                    const timeB = b.last_refresh_at ? new Date(b.last_refresh_at) : new Date(0);
-                    return currentSortOrder === 'asc' ? timeA - timeB : timeB - timeA;
-                } else {
-                    const emailA = a.email.toLowerCase();
-                    const emailB = b.email.toLowerCase();
-                    return currentSortOrder === 'asc'
-                        ? emailA.localeCompare(emailB)
-                        : emailB.localeCompare(emailA);
-                }
-            });
-        }
-
-        // Tag Filter Change Handler
-        function handleTagFilterChange() {
-            if (isSearchMode && currentSearchQuery) {
-                searchAccounts(currentSearchQuery, 0);
-                return;
-            }
-            loadAccounts(true, 0);
         }
 
         function updateAccountPaginationControls() {
@@ -3200,10 +3104,6 @@ ${details}
                     sort_by: currentSortBy,
                     sort_order: currentSortOrder
                 });
-                const tagIds = getSelectedTagIds();
-                if (tagIds.length > 0) {
-                    params.append('tag_ids', tagIds.join(','));
-                }
                 if (currentRefreshStatus && currentRefreshStatus !== 'all') {
                     params.append('refresh_status', currentRefreshStatus);
                 }
@@ -3251,15 +3151,13 @@ ${details}
         }
 
         function buildSearchCacheKey(query, offset) {
-            const tagIds = getSelectedTagIds().slice().sort((a, b) => a - b);
             return JSON.stringify({
                 q: query,
                 offset,
                 limit: searchPaging.limit,
                 sortBy: currentSortBy,
                 sortOrder: currentSortOrder,
-                refreshStatus: currentRefreshStatus,
-                tagIds
+                refreshStatus: currentRefreshStatus
             });
         }
 
@@ -5355,7 +5253,9 @@ ${details}
 
         // 统一关闭所有模态框的函数 (修复 bug：防止模态框意外残留)
         function closeAllModals() {
-            hideAddGroupModal();
+            if (typeof hideAddGroupModal === 'function') {
+                hideAddGroupModal();
+            }
             hideAddAccountModal();
             hideEditAccountModal();
             hideExportModal();
@@ -5377,7 +5277,9 @@ ${details}
         // 键盘快捷键
         document.addEventListener('keydown', function (e) {
             if (e.key === 'Escape') {
-                hideAddGroupModal();
+                if (typeof hideAddGroupModal === 'function') {
+                    hideAddGroupModal();
+                }
                 hideAddAccountModal();
                 hideEditAccountModal();
                 hideExportModal();
@@ -5389,145 +5291,38 @@ ${details}
                 closeFullscreenEmail();
             }
         });
-        // ==================== 标签管理 ====================
-
-        let allTags = [];
-
-        // 显示标签管理模态框
-        async function showTagManagementModal() {
-            document.getElementById('tagManagementModal').classList.add('show');
-            await loadTags();
-        }
-
-        // 隐藏标签管理模态框
-        function hideTagManagementModal() {
-            document.getElementById('tagManagementModal').classList.remove('show');
-        }
-
-        // 加载标签列表
-        async function loadTags() {
-            try {
-                const response = await fetch('/api/tags');
-                const data = await response.json();
-                if (data.success) {
-                    allTags = data.tags;
-                    renderTagList();
-                    updateTagFilter();  // Update Filter Dropdown
-                }
-            } catch (error) {
-                showToast('加载标签失败', 'error');
-            }
-        }
-
-        // 更新标签筛选下拉框
-        function updateTagFilter() {
-            const container = document.getElementById('tagFilterContainer');
-            if (!container) return;
-
-            if (allTags.length === 0) {
-                container.style.display = 'none';
-                return;
-            }
-
-            container.style.display = 'flex';
-
-            let html = '';
-            allTags.forEach(tag => {
-                html += `
-                    <label style="display: inline-flex; align-items: center; gap: 4px; font-size: 11px; cursor: pointer; padding: 2px 6px; border: 1px solid #e5e5e5; border-radius: 12px; background: white; user-select: none;">
-                        <input type="checkbox" class="tag-filter-checkbox" value="${tag.id}" onchange="handleTagFilterChange()" style="margin: 0;">
-                        <span style="width: 8px; height: 8px; border-radius: 50%; background-color: ${tag.color}; display: inline-block;"></span>
-                        ${escapeHtml(tag.name)}
-                    </label>
-                `;
-            });
-            container.innerHTML = html;
-            /* Old dropdown code removed */
-
-
-        }
-
-        // 渲染标签列表
-        function renderTagList() {
-            const listEl = document.getElementById('tagList');
-            if (!allTags.length) {
-                listEl.innerHTML = '<div style="text-align: center; color: #999; padding: 20px;">暂无标签</div>';
-                return;
-            }
-
-            let html = '';
-            allTags.forEach(tag => {
-                html += `
-                    <div style="display: flex; align-items: center; justify-content: space-between; padding: 8px; border-bottom: 1px solid #f0f0f0;">
-                        <div style="display: flex; align-items: center; gap: 8px;">
-                            <span class="tag-badge" style="background-color: ${tag.color};">${escapeHtml(tag.name)}</span>
-                        </div>
-                        <button class="btn btn-sm btn-danger" onclick="deleteTag(${tag.id})">删除</button>
-                    </div>
-                `;
-            });
-            listEl.innerHTML = html;
-        }
-
-        // 创建标签
-        async function createTag() {
-            const nameInput = document.getElementById('newTagName');
-            const colorInput = document.getElementById('newTagColor');
-            const name = nameInput.value.trim();
-            const color = colorInput.value;
-
-            if (!name) {
-                showToast('请输入标签名称', 'error');
-                return;
-            }
-
-            try {
-                const response = await fetch('/api/tags', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, color })
-                });
-                const data = await response.json();
-
-                if (data.success) {
-                    nameInput.value = '';
-                    showToast('标签创建成功', 'success');
-                    await loadTags();
-                    invalidateAccountCaches();
-                    // 刷新账号列表以重新加载标签（如果是在查看列表时添加标签，可能不需要立即刷新列表，但为了保持一致性可以刷新）
-                    // 但通常添加标签不影响当前列表显示，除非是给账号打标
-                } else {
-                    showToast(data.error || '创建失败', 'error');
-                }
-            } catch (error) {
-                showToast('创建标签失败', 'error');
-            }
-        }
-
-        // 删除标签
-        async function deleteTag(id) {
-            if (!confirm('确定要删除这个标签吗？')) return;
-
-            try {
-                const response = await fetch(`/api/tags/${id}`, { method: 'DELETE' });
-                const data = await response.json();
-
-                if (data.success) {
-                    showToast('标签已删除', 'success');
-                    await loadTags();
-                    invalidateAccountCaches();
-                    refreshAccountList();
-                } else {
-                    showToast(data.error || '删除失败', 'error');
-                }
-            } catch (error) {
-                showToast('删除标签失败', 'error');
-            }
-        }
-
         // ==================== 批量操作 ====================
 
         // 更新批量操作栏状态
+        
+        let openAccountMenuId = null;
+
+        function closeAccountMenu() {
+            if (!openAccountMenuId) return;
+            const menu = document.getElementById(`accountMenu-${openAccountMenuId}`);
+            if (menu) {
+                menu.classList.remove('show');
+            }
+            openAccountMenuId = null;
+        }
+
+        function toggleAccountMenu(accountId) {
+            const menu = document.getElementById(`accountMenu-${accountId}`);
+            if (!menu) return;
+            if (openAccountMenuId && openAccountMenuId !== accountId) {
+                closeAccountMenu();
+            }
+            const willOpen = !menu.classList.contains('show');
+            menu.classList.toggle('show', willOpen);
+            openAccountMenuId = willOpen ? accountId : null;
+        }
+
+        document.addEventListener('click', (event) => {
+            if (!event.target.closest('.account-ops')) {
+                closeAccountMenu();
+            }
+        });
+
         function updateBatchActionBar() {
             const boxes = document.querySelectorAll('.account-select-checkbox');
             const checked = document.querySelectorAll('.account-select-checkbox:checked');
@@ -5567,83 +5362,6 @@ ${details}
         function getSelectedAccountIds() {
             const checked = document.querySelectorAll('.account-select-checkbox:checked');
             return Array.from(checked).map(cb => parseInt(cb.value)).filter(Boolean);
-        }
-
-        let batchActionType = ''; // 'add' or 'remove'
-
-        // 显示批量打标模态框
-        async function showBatchTagModal(type) {
-            batchActionType = type;
-            document.getElementById('batchTagTitle').textContent = type === 'add' ? '批量添加标签' : '批量移除标签';
-            document.getElementById('batchTagModal').classList.add('show');
-
-            // 加载标签选项
-            await loadTagsForSelect();
-        }
-
-        function hideBatchTagModal() {
-            document.getElementById('batchTagModal').classList.remove('show');
-        }
-
-        // 加载标签到下拉框
-        async function loadTagsForSelect() {
-            const select = document.getElementById('batchTagSelect');
-            select.innerHTML = '<option value="">加载中...</option>';
-
-            try {
-                const response = await fetch('/api/tags');
-                const data = await response.json();
-                if (data.success) {
-                    let html = '<option value="">请选择标签...</option>';
-                    data.tags.forEach(tag => {
-                        html += `<option value="${tag.id}">${escapeHtml(tag.name)}</option>`;
-                    });
-                    select.innerHTML = html;
-                }
-            } catch (error) {
-                select.innerHTML = '<option value="">加载失败</option>';
-            }
-        }
-
-        // 确认批量打标
-        async function confirmBatchTag() {
-            const tagId = document.getElementById('batchTagSelect').value;
-            if (!tagId) {
-                showToast('请选择标签', 'error');
-                return;
-            }
-
-            const checked = document.querySelectorAll('.account-select-checkbox:checked');
-            const accountIds = Array.from(checked).map(cb => parseInt(cb.value));
-
-            if (accountIds.length === 0) return;
-
-            try {
-                const response = await fetch('/api/accounts/tags', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        account_ids: accountIds,
-                        tag_id: parseInt(tagId),
-                        action: batchActionType
-                    })
-                });
-
-                const data = await response.json();
-                if (data.success) {
-                    showToast(data.message, 'success');
-                    hideBatchTagModal();
-                    invalidateAccountCaches();
-                    refreshAccountList();
-                    // 隐藏操作栏
-                    document.querySelectorAll('.account-select-checkbox').forEach(cb => cb.checked = false);
-                    updateBatchActionBar();
-                } else {
-                    showToast(data.error || '操作失败', 'error');
-                }
-            } catch (error) {
-                showToast('请求失败', 'error');
-            }
         }
 
         async function deleteSelectedAccounts() {

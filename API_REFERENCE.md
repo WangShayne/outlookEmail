@@ -95,8 +95,7 @@
       "email": "a@outlook.com",
       "client_id": "abcdef12...",
       "status": "active",
-      "last_refresh_at": "2026-02-01 10:00:00",
-      "tags": []
+      "last_refresh_at": "2026-02-01 10:00:00"
     }
   ]
 }
@@ -153,24 +152,7 @@
 ### `DELETE /api/accounts/email/<email>`
 
 ### `GET /api/accounts/search?q=keyword`
-- 支持邮箱、备注、标签搜索。
-
-## 标签
-
-### `GET /api/tags`
-### `POST /api/tags`
-**请求**
-```json
-{"name": "VIP", "color": "#ff9900"}
-```
-
-### `DELETE /api/tags/<id>`
-
-### `POST /api/accounts/tags`
-**请求**
-```json
-{"account_ids": [1, 2], "tag_id": 5, "action": "add"}
-```
+- 支持邮箱、备注搜索。
 
 ## 邮件
 
