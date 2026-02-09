@@ -3255,15 +3255,8 @@ ${details}
 
                 renderEmailList(currentEmails);
             } else {
-                document.getElementById('emailList').innerHTML = `
-                    <div class="empty-state">
-                        <div class="empty-state-icon">邮件</div>
-                        <div class="empty-state-text">点击"获取邮件"按钮获取邮件</div>
-                    </div>
-                `;
-                document.getElementById('emailCount').textContent = '';
-                document.getElementById('methodTag').style.display = 'none';
-                currentEmails = [];
+                // 自动获取邮件
+                loadEmails(email, false);
             }
 
             document.getElementById('emailDetail').innerHTML = `
@@ -4388,8 +4381,6 @@ ${details}
                 const data = await response.json();
 
                 if (data.success) {
-                    // 密码不显示，只显示 API Key
-                    document.getElementById('settingsApiKey').value = data.settings.gptmail_api_key || '';
                     // 密码框留空
                     document.getElementById('settingsPassword').value = '';
 
@@ -4471,7 +4462,6 @@ ${details}
         // 保存设置
         async function saveSettings() {
             const password = document.getElementById('settingsPassword').value;
-            const apiKey = document.getElementById('settingsApiKey').value.trim();
             const refreshDays = document.getElementById('refreshIntervalDays').value;
             const refreshDelay = document.getElementById('refreshDelaySeconds').value;
             const refreshCron = document.getElementById('refreshCron').value.trim();
@@ -4484,9 +4474,6 @@ ${details}
             if (password) {
                 settings.login_password = password;
             }
-
-            // API Key 可以为空（清除）
-            settings.gptmail_api_key = apiKey;
 
             // 刷新配置
             const days = parseInt(refreshDays);

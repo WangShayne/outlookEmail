@@ -25,7 +25,17 @@ from datetime import datetime, timedelta
 from email.header import decode_header
 from typing import Optional, List, Dict, Any
 from urllib.parse import quote
-from flask import Flask, render_template, request, jsonify, g, session, redirect, url_for, Response
+from flask import (
+    Flask,
+    render_template,
+    request,
+    jsonify,
+    g,
+    session,
+    redirect,
+    url_for,
+    Response,
+)
 from werkzeug.exceptions import HTTPException
 from functools import wraps
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -50,10 +60,13 @@ except Exception as _e:
 # 尝试导入 Flask-WTF CSRF 保护
 try:
     from flask_wtf.csrf import CSRFProtect, generate_csrf
+
     CSRF_AVAILABLE = True
 except ImportError:
     CSRF_AVAILABLE = False
-    print("Warning: flask-wtf not installed. CSRF protection is disabled. Install with: pip install flask-wtf")
+    print(
+        "Warning: flask-wtf not installed. CSRF protection is disabled. Install with: pip install flask-wtf"
+    )
 
 app = Flask(__name__)
 # 强制从环境变量读取 secret_key，不提供默认值以防止安全漏洞
@@ -65,14 +78,14 @@ if not secret_key:
     )
 app.secret_key = secret_key
 # 设置 session 过期时间（默认 7 天）
-app.config['PERMANENT_SESSION_LIFETIME'] = 60 * 60 * 24 * 7  # 7 天
+app.config["PERMANENT_SESSION_LIFETIME"] = 60 * 60 * 24 * 7  # 7 天
 
 # 初始化 CSRF 保护（如果可用）
 if CSRF_AVAILABLE:
     csrf = CSRFProtect(app)
     # 配置 CSRF
-    app.config['WTF_CSRF_TIME_LIMIT'] = None  # CSRF token 不过期
-    app.config['WTF_CSRF_SSL_STRICT'] = False  # 允许非HTTPS环境（开发环境）
+    app.config["WTF_CSRF_TIME_LIMIT"] = None  # CSRF token 不过期
+    app.config["WTF_CSRF_SSL_STRICT"] = False  # 允许非HTTPS环境（开发环境）
     print("CSRF protection enabled")
 
     # 创建CSRF排除装饰器
@@ -81,13 +94,14 @@ if CSRF_AVAILABLE:
 else:
     csrf = None
     # 显式禁用CSRF保护
-    app.config['WTF_CSRF_ENABLED'] = False
-    app.config['WTF_CSRF_CHECK_DEFAULT'] = False
+    app.config["WTF_CSRF_ENABLED"] = False
+    app.config["WTF_CSRF_CHECK_DEFAULT"] = False
     print("CSRF protection disabled")
 
     # 创建空装饰器
     def csrf_exempt(f):
         return f
+
 
 # 登录密码配置（可以修改为你想要的密码）
 LOGIN_PASSWORD = os.getenv("LOGIN_PASSWORD", "admin123")
@@ -114,7 +128,7 @@ OAUTH_SCOPES = [
     "offline_access",
     "https://graph.microsoft.com/Mail.Read",
     "https://graph.microsoft.com/Mail.ReadWrite",
-    "https://graph.microsoft.com/User.Read"
+    "https://graph.microsoft.com/User.Read",
 ]
 
 # 刷新任务配置
@@ -123,7 +137,9 @@ REFRESH_BATCH_SIZE = int(os.getenv("REFRESH_BATCH_SIZE", "80"))
 REFRESH_BACKOFF_RETRIES = int(os.getenv("REFRESH_BACKOFF_RETRIES", "3"))
 REFRESH_BACKOFF_BASE = float(os.getenv("REFRESH_BACKOFF_BASE", "1.0"))
 REFRESH_BACKOFF_MAX = float(os.getenv("REFRESH_BACKOFF_MAX", "10.0"))
-REFRESH_RESUME_TTL_SECONDS = int(os.getenv("REFRESH_RESUME_TTL_SECONDS", "21600"))  # 6小时
+REFRESH_RESUME_TTL_SECONDS = int(
+    os.getenv("REFRESH_RESUME_TTL_SECONDS", "21600")
+)  # 6小时
 
 
 # ==================== 登录速率限制 ====================
@@ -134,7 +150,7 @@ login_attempts = {}
 # 速率限制配置
 MAX_LOGIN_ATTEMPTS = 5  # 最大失败次数
 LOCKOUT_DURATION = 300  # 锁定时长（秒）- 5分钟
-ATTEMPT_WINDOW = 600    # 失败计数窗口（秒）- 10分钟
+ATTEMPT_WINDOW = 600  # 失败计数窗口（秒）- 10分钟
 
 
 def check_rate_limit(ip: str) -> tuple[bool, Optional[int]]:
@@ -150,20 +166,20 @@ def check_rate_limit(ip: str) -> tuple[bool, Optional[int]]:
     attempt_data = login_attempts[ip]
 
     # 检查是否在锁定期内
-    if 'locked_until' in attempt_data and current_time < attempt_data['locked_until']:
-        remaining = int(attempt_data['locked_until'] - current_time)
+    if "locked_until" in attempt_data and current_time < attempt_data["locked_until"]:
+        remaining = int(attempt_data["locked_until"] - current_time)
         return False, remaining
 
     # 检查失败计数是否过期
-    if current_time - attempt_data.get('last_attempt', 0) > ATTEMPT_WINDOW:
+    if current_time - attempt_data.get("last_attempt", 0) > ATTEMPT_WINDOW:
         # 重置计数
-        login_attempts[ip] = {'count': 0, 'last_attempt': current_time}
+        login_attempts[ip] = {"count": 0, "last_attempt": current_time}
         return True, None
 
     # 检查失败次数
-    if attempt_data.get('count', 0) >= MAX_LOGIN_ATTEMPTS:
+    if attempt_data.get("count", 0) >= MAX_LOGIN_ATTEMPTS:
         # 锁定账号
-        attempt_data['locked_until'] = current_time + LOCKOUT_DURATION
+        attempt_data["locked_until"] = current_time + LOCKOUT_DURATION
         remaining = LOCKOUT_DURATION
         return False, remaining
 
@@ -175,16 +191,16 @@ def record_login_failure(ip: str):
     current_time = time.time()
 
     if ip not in login_attempts:
-        login_attempts[ip] = {'count': 1, 'last_attempt': current_time}
+        login_attempts[ip] = {"count": 1, "last_attempt": current_time}
     else:
         attempt_data = login_attempts[ip]
         # 如果在窗口期内，增加计数
-        if current_time - attempt_data.get('last_attempt', 0) <= ATTEMPT_WINDOW:
-            attempt_data['count'] = attempt_data.get('count', 0) + 1
+        if current_time - attempt_data.get("last_attempt", 0) <= ATTEMPT_WINDOW:
+            attempt_data["count"] = attempt_data.get("count", 0) + 1
         else:
             # 重置计数
-            attempt_data['count'] = 1
-        attempt_data['last_attempt'] = current_time
+            attempt_data["count"] = 1
+        attempt_data["last_attempt"] = current_time
 
 
 def reset_login_attempts(ip: str):
@@ -195,24 +211,29 @@ def reset_login_attempts(ip: str):
 
 # ==================== 密码安全工具 ====================
 
+
 def hash_password(password: str) -> str:
     """使用 bcrypt 哈希密码"""
     salt = bcrypt.gensalt()
-    hashed = bcrypt.hashpw(password.encode('utf-8'), salt)
-    return hashed.decode('utf-8')
+    hashed = bcrypt.hashpw(password.encode("utf-8"), salt)
+    return hashed.decode("utf-8")
 
 
 def verify_password(password: str, hashed: str) -> bool:
     """验证密码是否匹配哈希值"""
     try:
-        return bcrypt.checkpw(password.encode('utf-8'), hashed.encode('utf-8'))
+        return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
     except Exception:
         return False
 
 
 def is_password_hashed(password: str) -> bool:
     """检查密码是否已经是 bcrypt 哈希值"""
-    return password.startswith('$2b$') or password.startswith('$2a$') or password.startswith('$2y$')
+    return (
+        password.startswith("$2b$")
+        or password.startswith("$2a$")
+        or password.startswith("$2y$")
+    )
 
 
 # ==================== 数据加密工具 ====================
@@ -232,7 +253,7 @@ def get_encryption_key() -> bytes:
 
     # 使用固定盐（因为我们需要确保重启后能解密）
     # 注意：这里使用固定盐是为了确保密钥一致性，安全性依赖于 SECRET_KEY 的强度
-    salt = b'outlook_email_encryption_salt_v1'
+    salt = b"outlook_email_encryption_salt_v1"
 
     kdf = PBKDF2HMAC(
         algorithm=hashes.SHA256(),
@@ -262,12 +283,12 @@ def encrypt_data(data: str) -> str:
         return data
 
     # 如果已经加密，直接返回
-    if data.startswith('enc:'):
+    if data.startswith("enc:"):
         return data
 
     cipher = get_cipher()
-    encrypted = cipher.encrypt(data.encode('utf-8'))
-    return 'enc:' + encrypted.decode('utf-8')
+    encrypted = cipher.encrypt(data.encode("utf-8"))
+    return "enc:" + encrypted.decode("utf-8")
 
 
 def decrypt_data(encrypted_data: str) -> str:
@@ -279,30 +300,35 @@ def decrypt_data(encrypted_data: str) -> str:
         return encrypted_data
 
     # 如果没有加密标识，返回原始数据（向后兼容）
-    if not encrypted_data.startswith('enc:'):
+    if not encrypted_data.startswith("enc:"):
         return encrypted_data
 
     try:
         cipher = get_cipher()
-        encrypted_bytes = encrypted_data[4:].encode('utf-8')  # 移除 'enc:' 前缀
+        encrypted_bytes = encrypted_data[4:].encode("utf-8")  # 移除 'enc:' 前缀
         decrypted = cipher.decrypt(encrypted_bytes)
-        return decrypted.decode('utf-8')
+        return decrypted.decode("utf-8")
     except Exception as e:
         # 解密失败，可能是密钥变更或数据损坏
         import sys
+
         error_msg = f"Failed to decrypt data: {str(e)}"
         print(f"[ERROR] {error_msg}", file=sys.stderr)
         print(f"[ERROR] Data preview: {encrypted_data[:50]}...", file=sys.stderr)
-        print(f"[ERROR] This usually means SECRET_KEY has changed or data is corrupted", file=sys.stderr)
+        print(
+            f"[ERROR] This usually means SECRET_KEY has changed or data is corrupted",
+            file=sys.stderr,
+        )
         raise RuntimeError(error_msg)
 
 
 def is_encrypted(data: str) -> bool:
     """检查数据是否已加密"""
-    return data and data.startswith('enc:')
+    return data and data.startswith("enc:")
 
 
 # ==================== 错误处理工具 ====================
+
 
 def generate_trace_id() -> str:
     return uuid.uuid4().hex
@@ -313,12 +339,15 @@ def sanitize_error_details(details: Optional[str]) -> str:
         return ""
     sanitized = details
     patterns = [
-        (r'(?i)(bearer\s+)[A-Za-z0-9\-._~\+/]+=*', r'\1***'),
-        (r'(?i)(refresh_token|access_token|token|password|passwd|secret)\s*[:=]\s*\"?[A-Za-z0-9\-._~\+/]+=*\"?', r'\1=***'),
-        (r'(?i)(\"refresh_token\"\s*:\s*\")[^\"]+(\"?)', r'\1***\2'),
-        (r'(?i)(\"access_token\"\s*:\s*\")[^\"]+(\"?)', r'\1***\2'),
-        (r'(?i)(\"password\"\s*:\s*\")[^\"]+(\"?)', r'\1***\2'),
-        (r'(?i)(client_secret|refresh_token|access_token)=[^&\s]+', r'\1=***')
+        (r"(?i)(bearer\s+)[A-Za-z0-9\-._~\+/]+=*", r"\1***"),
+        (
+            r"(?i)(refresh_token|access_token|token|password|passwd|secret)\s*[:=]\s*\"?[A-Za-z0-9\-._~\+/]+=*\"?",
+            r"\1=***",
+        ),
+        (r"(?i)(\"refresh_token\"\s*:\s*\")[^\"]+(\"?)", r"\1***\2"),
+        (r"(?i)(\"access_token\"\s*:\s*\")[^\"]+(\"?)", r"\1***\2"),
+        (r"(?i)(\"password\"\s*:\s*\")[^\"]+(\"?)", r"\1***\2"),
+        (r"(?i)(client_secret|refresh_token|access_token)=[^&\s]+", r"\1=***"),
     ]
     for pattern, repl in patterns:
         sanitized = re.sub(pattern, repl, sanitized)
@@ -331,7 +360,7 @@ def build_error_payload(
     err_type: str = "Error",
     status: int = 500,
     details: Any = None,
-    trace_id: Optional[str] = None
+    trace_id: Optional[str] = None,
 ) -> Dict[str, Any]:
     if details is not None and not isinstance(details, str):
         try:
@@ -346,7 +375,7 @@ def build_error_payload(
         "type": err_type,
         "status": status,
         "details": sanitized_details,
-        "trace_id": trace_id_value
+        "trace_id": trace_id_value,
     }
     try:
         app.logger.error(
@@ -355,7 +384,7 @@ def build_error_payload(
             code,
             status,
             err_type,
-            sanitized_details
+            sanitized_details,
         )
     except Exception:
         pass
@@ -371,6 +400,7 @@ def get_response_details(response: requests.Response) -> Any:
 
 # ==================== 数据库操作 ====================
 
+
 def configure_sqlite(conn: sqlite3.Connection) -> None:
     """配置 SQLite 连接参数（WAL + busy_timeout）"""
     try:
@@ -380,9 +410,10 @@ def configure_sqlite(conn: sqlite3.Connection) -> None:
     except Exception:
         pass
 
+
 def get_db():
     """获取数据库连接"""
-    db = getattr(g, '_database', None)
+    db = getattr(g, "_database", None)
     if db is None:
         db = g._database = sqlite3.connect(DATABASE, timeout=10)
         configure_sqlite(db)
@@ -393,7 +424,7 @@ def get_db():
 @app.teardown_appcontext
 def close_connection(exception):
     """关闭数据库连接"""
-    db = getattr(g, '_database', None)
+    db = getattr(g, "_database", None)
     if db is not None:
         db.close()
 
@@ -403,18 +434,18 @@ def init_db():
     conn = sqlite3.connect(DATABASE, timeout=10)
     configure_sqlite(conn)
     cursor = conn.cursor()
-    
+
     # 创建设置表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
-    
+    """)
+
     # 创建邮箱账号表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS accounts (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             email TEXT UNIQUE NOT NULL,
@@ -427,10 +458,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
-    
+    """)
+
     # 创建账号刷新记录表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS account_refresh_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             account_id INTEGER NOT NULL,
@@ -441,10 +472,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
         )
-    ''')
+    """)
 
     # 创建刷新运行记录表（用于统计与趋势）
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS refresh_runs (
             run_id TEXT PRIMARY KEY,
             refresh_type TEXT NOT NULL,
@@ -462,10 +493,10 @@ def init_db():
             delay_seconds INTEGER,
             status TEXT DEFAULT 'running'
         )
-    ''')
+    """)
 
     # 外部领取邮箱租约表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS account_leases (
             lease_id TEXT PRIMARY KEY,
             account_id INTEGER UNIQUE NOT NULL,
@@ -474,10 +505,10 @@ def init_db():
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             FOREIGN KEY (account_id) REFERENCES accounts (id) ON DELETE CASCADE
         )
-    ''')
+    """)
 
     # 创建审计日志表
-    cursor.execute('''
+    cursor.execute("""
         CREATE TABLE IF NOT EXISTS audit_logs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             action TEXT NOT NULL,
@@ -487,30 +518,32 @@ def init_db():
             details TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
-    ''')
+    """)
 
     # 检查并添加缺失的列（数据库迁移）
     cursor.execute("PRAGMA table_info(accounts)")
     columns = [col[1] for col in cursor.fetchall()]
 
-    if 'remark' not in columns:
-        cursor.execute('ALTER TABLE accounts ADD COLUMN remark TEXT')
-    if 'status' not in columns:
+    if "remark" not in columns:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN remark TEXT")
+    if "status" not in columns:
         cursor.execute("ALTER TABLE accounts ADD COLUMN status TEXT DEFAULT 'active'")
-    if 'updated_at' not in columns:
-        cursor.execute('ALTER TABLE accounts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP')
-    if 'last_refresh_at' not in columns:
-        cursor.execute('ALTER TABLE accounts ADD COLUMN last_refresh_at TIMESTAMP')
+    if "updated_at" not in columns:
+        cursor.execute(
+            "ALTER TABLE accounts ADD COLUMN updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP"
+        )
+    if "last_refresh_at" not in columns:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN last_refresh_at TIMESTAMP")
 
     # 移除历史分组字段与分组表（SQLite 需要重建表）
-    if 'group_id' in columns:
+    if "group_id" in columns:
         foreign_keys = cursor.execute("PRAGMA foreign_keys").fetchone()
         foreign_keys_on = foreign_keys[0] if foreign_keys else 0
         cursor.execute("PRAGMA foreign_keys=OFF")
         cursor.execute("SAVEPOINT drop_group_id")
         try:
-            cursor.execute('DROP TABLE IF EXISTS accounts_new')
-            cursor.execute('''
+            cursor.execute("DROP TABLE IF EXISTS accounts_new")
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS accounts_new (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     email TEXT UNIQUE NOT NULL,
@@ -523,20 +556,28 @@ def init_db():
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
-            ''')
+            """)
             desired_cols = [
-                'id', 'email', 'password', 'client_id', 'refresh_token',
-                'remark', 'status', 'last_refresh_at', 'created_at', 'updated_at'
+                "id",
+                "email",
+                "password",
+                "client_id",
+                "refresh_token",
+                "remark",
+                "status",
+                "last_refresh_at",
+                "created_at",
+                "updated_at",
             ]
             copy_cols = [col for col in desired_cols if col in columns]
             if copy_cols:
                 cols_sql = ", ".join(copy_cols)
-                cursor.execute(f'''
+                cursor.execute(f"""
                     INSERT INTO accounts_new ({cols_sql})
                     SELECT {cols_sql} FROM accounts
-                ''')
-            cursor.execute('DROP TABLE accounts')
-            cursor.execute('ALTER TABLE accounts_new RENAME TO accounts')
+                """)
+            cursor.execute("DROP TABLE accounts")
+            cursor.execute("ALTER TABLE accounts_new RENAME TO accounts")
             cursor.execute("RELEASE drop_group_id")
         except Exception:
             cursor.execute("ROLLBACK TO drop_group_id")
@@ -546,26 +587,28 @@ def init_db():
             cursor.execute(f"PRAGMA foreign_keys={1 if foreign_keys_on else 0}")
 
     # 移除分组表（兼容旧库残留）
-    cursor.execute('DROP TABLE IF EXISTS groups')
+    cursor.execute("DROP TABLE IF EXISTS groups")
 
     # 移除标签相关表（功能已移除）
-    cursor.execute('DROP TABLE IF EXISTS account_tags')
-    cursor.execute('DROP TABLE IF EXISTS tags')
-    
+    cursor.execute("DROP TABLE IF EXISTS account_tags")
+    cursor.execute("DROP TABLE IF EXISTS tags")
+
     # 检查 refresh_runs 表的缺失列
     cursor.execute("PRAGMA table_info(refresh_runs)")
     refresh_columns = [col[1] for col in cursor.fetchall()]
-    if 'total_all' not in refresh_columns:
-        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN total_all INTEGER DEFAULT 0')
-    if 'group_id' not in refresh_columns:
-        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN group_id INTEGER')
-    if 'max_workers' not in refresh_columns:
-        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN max_workers INTEGER')
-    if 'batch_size' not in refresh_columns:
-        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN batch_size INTEGER')
-    if 'delay_seconds' not in refresh_columns:
-        cursor.execute('ALTER TABLE refresh_runs ADD COLUMN delay_seconds INTEGER')
-    
+    if "total_all" not in refresh_columns:
+        cursor.execute(
+            "ALTER TABLE refresh_runs ADD COLUMN total_all INTEGER DEFAULT 0"
+        )
+    if "group_id" not in refresh_columns:
+        cursor.execute("ALTER TABLE refresh_runs ADD COLUMN group_id INTEGER")
+    if "max_workers" not in refresh_columns:
+        cursor.execute("ALTER TABLE refresh_runs ADD COLUMN max_workers INTEGER")
+    if "batch_size" not in refresh_columns:
+        cursor.execute("ALTER TABLE refresh_runs ADD COLUMN batch_size INTEGER")
+    if "delay_seconds" not in refresh_columns:
+        cursor.execute("ALTER TABLE refresh_runs ADD COLUMN delay_seconds INTEGER")
+
     # 初始化默认设置
     # 检查是否已有密码设置
     cursor.execute("SELECT value FROM settings WHERE key = 'login_password'")
@@ -576,68 +619,74 @@ def init_db():
         password_value = existing_password[0]
         if not is_password_hashed(password_value):
             hashed_password = hash_password(password_value)
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE settings SET value = ? WHERE key = 'login_password'
-            ''', (hashed_password,))
+            """,
+                (hashed_password,),
+            )
     else:
         # 首次初始化，哈希默认密码
         hashed_password = hash_password(LOGIN_PASSWORD)
-        cursor.execute('''
+        cursor.execute(
+            """
             INSERT INTO settings (key, value)
             VALUES ('login_password', ?)
-        ''', (hashed_password,))
+        """,
+            (hashed_password,),
+        )
 
     # 初始化刷新配置
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_interval_days', '30')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_delay_seconds', '5')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_max_workers', '12')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_batch_size', '80')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('refresh_cron', '0 2 * * *')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('use_cron_schedule', 'false')
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         INSERT OR IGNORE INTO settings (key, value)
         VALUES ('enable_scheduled_refresh', 'true')
-    ''')
+    """)
 
     # 创建索引以优化查询性能
-    cursor.execute('''
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_accounts_last_refresh_at
         ON accounts(last_refresh_at)
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_accounts_status
         ON accounts(status)
-    ''')
+    """)
 
-    cursor.execute('''
+    cursor.execute("""
         CREATE INDEX IF NOT EXISTS idx_account_refresh_logs_account_id
         ON account_refresh_logs(account_id)
-    ''')
+    """)
 
     # 迁移现有明文数据为加密数据
     migrate_sensitive_data(conn)
@@ -651,7 +700,7 @@ def migrate_sensitive_data(conn):
     cursor = conn.cursor()
 
     # 获取所有账号
-    cursor.execute('SELECT id, password, refresh_token FROM accounts')
+    cursor.execute("SELECT id, password, refresh_token FROM accounts")
     accounts = cursor.fetchall()
 
     migrated_count = 0
@@ -672,11 +721,14 @@ def migrate_sensitive_data(conn):
 
         # 更新数据库
         if needs_update:
-            cursor.execute('''
+            cursor.execute(
+                """
                 UPDATE accounts
                 SET password = ?, refresh_token = ?
                 WHERE id = ?
-            ''', (new_password, new_refresh_token, account_id))
+            """,
+                (new_password, new_refresh_token, account_id),
+            )
             migrated_count += 1
 
     if migrated_count > 0:
@@ -685,19 +737,20 @@ def migrate_sensitive_data(conn):
 
 # ==================== 应用初始化 ====================
 
+
 def init_app():
     """初始化应用（确保目录和数据库存在）"""
     # 确保 templates 目录存在
-    os.makedirs('templates', exist_ok=True)
-    
+    os.makedirs("templates", exist_ok=True)
+
     # 确保数据目录存在
     data_dir = os.path.dirname(DATABASE)
     if data_dir:
         os.makedirs(data_dir, exist_ok=True)
-    
+
     # 初始化数据库
     init_db()
-    
+
     print("=" * 60)
     print("Outlook 邮件 Web 应用已初始化")
     print(f"数据库文件: {DATABASE}")
@@ -710,22 +763,26 @@ init_app()
 
 # ==================== 设置操作 ====================
 
-def get_setting(key: str, default: str = '') -> str:
+
+def get_setting(key: str, default: str = "") -> str:
     """获取设置值"""
     db = get_db()
-    cursor = db.execute('SELECT value FROM settings WHERE key = ?', (key,))
+    cursor = db.execute("SELECT value FROM settings WHERE key = ?", (key,))
     row = cursor.fetchone()
-    return row['value'] if row else default
+    return row["value"] if row else default
 
 
 def set_setting(key: str, value: str) -> bool:
     """设置值"""
     db = get_db()
     try:
-        db.execute('''
+        db.execute(
+            """
             INSERT OR REPLACE INTO settings (key, value, updated_at)
             VALUES (?, ?, CURRENT_TIMESTAMP)
-        ''', (key, value))
+        """,
+            (key, value),
+        )
         db.commit()
         return True
     except Exception:
@@ -735,43 +792,44 @@ def set_setting(key: str, value: str) -> bool:
 def get_all_settings() -> Dict[str, str]:
     """获取所有设置"""
     db = get_db()
-    cursor = db.execute('SELECT key, value FROM settings')
+    cursor = db.execute("SELECT key, value FROM settings")
     rows = cursor.fetchall()
-    return {row['key']: row['value'] for row in rows}
+    return {row["key"]: row["value"] for row in rows}
 
 
 def get_login_password() -> str:
     """获取登录密码（优先从数据库读取）"""
-    password = get_setting('login_password')
+    password = get_setting("login_password")
     return password if password else LOGIN_PASSWORD
 
 
 # ==================== 邮箱账号操作 ====================
 
+
 def load_accounts() -> List[Dict]:
     """从数据库加载邮箱账号"""
     db = get_db()
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT a.*
         FROM accounts a
         ORDER BY a.created_at DESC
-    ''')
+    """)
     rows = cursor.fetchall()
     accounts = []
     for row in rows:
         account = dict(row)
         # 解密敏感字段
-        if account.get('password'):
+        if account.get("password"):
             try:
-                account['password'] = decrypt_data(account['password'])
+                account["password"] = decrypt_data(account["password"])
             except Exception:
                 pass  # 解密失败保持原值
-        if account.get('refresh_token'):
+        if account.get("refresh_token"):
             try:
-                account['refresh_token'] = decrypt_data(account['refresh_token'])
+                account["refresh_token"] = decrypt_data(account["refresh_token"])
             except Exception:
                 pass  # 解密失败保持原值
-        
+
         accounts.append(account)
     return accounts
 
@@ -779,20 +837,20 @@ def load_accounts() -> List[Dict]:
 def get_account_by_email(email_addr: str) -> Optional[Dict]:
     """根据邮箱地址获取账号"""
     db = get_db()
-    cursor = db.execute('SELECT * FROM accounts WHERE email = ?', (email_addr,))
+    cursor = db.execute("SELECT * FROM accounts WHERE email = ?", (email_addr,))
     row = cursor.fetchone()
     if not row:
         return None
     account = dict(row)
     # 解密敏感字段
-    if account.get('password'):
+    if account.get("password"):
         try:
-            account['password'] = decrypt_data(account['password'])
+            account["password"] = decrypt_data(account["password"])
         except Exception:
             pass
-    if account.get('refresh_token'):
+    if account.get("refresh_token"):
         try:
-            account['refresh_token'] = decrypt_data(account['refresh_token'])
+            account["refresh_token"] = decrypt_data(account["refresh_token"])
         except Exception:
             pass
     return account
@@ -801,59 +859,91 @@ def get_account_by_email(email_addr: str) -> Optional[Dict]:
 def get_account_by_id(account_id: int) -> Optional[Dict]:
     """根据 ID 获取账号"""
     db = get_db()
-    cursor = db.execute('SELECT * FROM accounts WHERE id = ?', (account_id,))
+    cursor = db.execute("SELECT * FROM accounts WHERE id = ?", (account_id,))
     row = cursor.fetchone()
     if not row:
         return None
     account = dict(row)
     # 解密敏感字段
-    if account.get('password'):
+    if account.get("password"):
         try:
-            account['password'] = decrypt_data(account['password'])
+            account["password"] = decrypt_data(account["password"])
         except Exception:
             pass
-    if account.get('refresh_token'):
+    if account.get("refresh_token"):
         try:
-            account['refresh_token'] = decrypt_data(account['refresh_token'])
+            account["refresh_token"] = decrypt_data(account["refresh_token"])
         except Exception:
             pass
     return account
 
 
-def add_account(email_addr: str, password: str, client_id: str, refresh_token: str,
-                remark: str = '') -> bool:
+def add_account(
+    email_addr: str, password: str, client_id: str, refresh_token: str, remark: str = ""
+) -> bool:
     """添加邮箱账号"""
     db = get_db()
     try:
         # 加密敏感字段
         encrypted_password = encrypt_data(password) if password else password
-        encrypted_refresh_token = encrypt_data(refresh_token) if refresh_token else refresh_token
+        encrypted_refresh_token = (
+            encrypt_data(refresh_token) if refresh_token else refresh_token
+        )
 
-        db.execute('''
+        db.execute(
+            """
             INSERT INTO accounts (email, password, client_id, refresh_token, remark)
             VALUES (?, ?, ?, ?, ?)
-        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, remark))
+        """,
+            (
+                email_addr,
+                encrypted_password,
+                client_id,
+                encrypted_refresh_token,
+                remark,
+            ),
+        )
         db.commit()
         return True
     except sqlite3.IntegrityError:
         return False
 
 
-def update_account(account_id: int, email_addr: str, password: str, client_id: str,
-                   refresh_token: str, remark: str, status: str) -> bool:
+def update_account(
+    account_id: int,
+    email_addr: str,
+    password: str,
+    client_id: str,
+    refresh_token: str,
+    remark: str,
+    status: str,
+) -> bool:
     """更新邮箱账号"""
     db = get_db()
     try:
         # 加密敏感字段
         encrypted_password = encrypt_data(password) if password else password
-        encrypted_refresh_token = encrypt_data(refresh_token) if refresh_token else refresh_token
+        encrypted_refresh_token = (
+            encrypt_data(refresh_token) if refresh_token else refresh_token
+        )
 
-        db.execute('''
+        db.execute(
+            """
             UPDATE accounts
             SET email = ?, password = ?, client_id = ?, refresh_token = ?,
                 remark = ?, status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (email_addr, encrypted_password, client_id, encrypted_refresh_token, remark, status, account_id))
+        """,
+            (
+                email_addr,
+                encrypted_password,
+                client_id,
+                encrypted_refresh_token,
+                remark,
+                status,
+                account_id,
+            ),
+        )
         db.commit()
         return True
     except Exception:
@@ -864,9 +954,11 @@ def delete_account_by_id(account_id: int) -> bool:
     """删除邮箱账号"""
     db = get_db()
     try:
-        db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
-        db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
-        db.execute('DELETE FROM accounts WHERE id = ?', (account_id,))
+        db.execute("DELETE FROM account_leases WHERE account_id = ?", (account_id,))
+        db.execute(
+            "DELETE FROM account_refresh_logs WHERE account_id = ?", (account_id,)
+        )
+        db.execute("DELETE FROM accounts WHERE id = ?", (account_id,))
         db.commit()
         return True
     except Exception:
@@ -877,12 +969,16 @@ def delete_account_by_email(email_addr: str) -> bool:
     """根据邮箱地址删除账号"""
     db = get_db()
     try:
-        row = db.execute('SELECT id FROM accounts WHERE email = ?', (email_addr,)).fetchone()
+        row = db.execute(
+            "SELECT id FROM accounts WHERE email = ?", (email_addr,)
+        ).fetchone()
         if row:
-            account_id = row['id']
-            db.execute('DELETE FROM account_leases WHERE account_id = ?', (account_id,))
-            db.execute('DELETE FROM account_refresh_logs WHERE account_id = ?', (account_id,))
-        db.execute('DELETE FROM accounts WHERE email = ?', (email_addr,))
+            account_id = row["id"]
+            db.execute("DELETE FROM account_leases WHERE account_id = ?", (account_id,))
+            db.execute(
+                "DELETE FROM account_refresh_logs WHERE account_id = ?", (account_id,)
+            )
+        db.execute("DELETE FROM accounts WHERE email = ?", (email_addr,))
         db.commit()
         return True
     except Exception:
@@ -890,6 +986,7 @@ def delete_account_by_email(email_addr: str) -> bool:
 
 
 # ==================== 工具函数 ====================
+
 
 def sanitize_input(text: str, max_length: int = 500) -> str:
     """
@@ -905,7 +1002,7 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
     text = text[:max_length]
 
     # 移除控制字符（保留换行和制表符）
-    text = ''.join(char for char in text if char.isprintable() or char in '\n\t')
+    text = "".join(char for char in text if char.isprintable() or char in "\n\t")
 
     # 转义HTML特殊字符
     text = html.escape(text, quote=True)
@@ -913,7 +1010,9 @@ def sanitize_input(text: str, max_length: int = 500) -> str:
     return text
 
 
-def log_audit(action: str, resource_type: str, resource_id: str = None, details: str = None):
+def log_audit(
+    action: str, resource_type: str, resource_id: str = None, details: str = None
+):
     """
     记录审计日志
     :param action: 操作类型（如 'export', 'delete', 'update'）
@@ -923,11 +1022,14 @@ def log_audit(action: str, resource_type: str, resource_id: str = None, details:
     """
     try:
         db = get_db()
-        user_ip = request.remote_addr if request else 'unknown'
-        db.execute('''
+        user_ip = request.remote_addr if request else "unknown"
+        db.execute(
+            """
             INSERT INTO audit_logs (action, resource_type, resource_id, user_ip, details)
             VALUES (?, ?, ?, ?, ?)
-        ''', (action, resource_type, resource_id, user_ip, details))
+        """,
+            (action, resource_type, resource_id, user_ip, details),
+        )
         db.commit()
     except Exception:
         # 审计日志失败不应影响主流程
@@ -944,9 +1046,11 @@ def decode_header_value(header_value: str) -> str:
         for part, charset in decoded_parts:
             if isinstance(part, bytes):
                 try:
-                    decoded_string += part.decode(charset if charset else 'utf-8', 'replace')
+                    decoded_string += part.decode(
+                        charset if charset else "utf-8", "replace"
+                    )
                 except (LookupError, UnicodeDecodeError):
-                    decoded_string += part.decode('utf-8', 'replace')
+                    decoded_string += part.decode("utf-8", "replace")
             else:
                 decoded_string += str(part)
         return decoded_string
@@ -961,30 +1065,34 @@ def get_email_body(msg) -> str:
         for part in msg.walk():
             content_type = part.get_content_type()
             content_disposition = str(part.get("Content-Disposition", ""))
-            
+
             if content_type == "text/plain" and "attachment" not in content_disposition:
                 try:
                     payload = part.get_payload(decode=True)
-                    charset = part.get_content_charset() or 'utf-8'
-                    body = payload.decode(charset, errors='replace')
+                    charset = part.get_content_charset() or "utf-8"
+                    body = payload.decode(charset, errors="replace")
                     break
                 except Exception:
                     continue
-            elif content_type == "text/html" and "attachment" not in content_disposition and not body:
+            elif (
+                content_type == "text/html"
+                and "attachment" not in content_disposition
+                and not body
+            ):
                 try:
                     payload = part.get_payload(decode=True)
-                    charset = part.get_content_charset() or 'utf-8'
-                    body = payload.decode(charset, errors='replace')
+                    charset = part.get_content_charset() or "utf-8"
+                    body = payload.decode(charset, errors="replace")
                 except Exception:
                     continue
     else:
         try:
             payload = msg.get_payload(decode=True)
-            charset = msg.get_content_charset() or 'utf-8'
-            body = payload.decode(charset, errors='replace')
+            charset = msg.get_content_charset() or "utf-8"
+            body = payload.decode(charset, errors="replace")
         except Exception:
             body = str(msg.get_payload())
-    
+
     return body
 
 
@@ -993,18 +1101,19 @@ def parse_account_string(account_str: str) -> Optional[Dict]:
     解析账号字符串
     格式: email----password----client_id----refresh_token
     """
-    parts = account_str.strip().split('----')
+    parts = account_str.strip().split("----")
     if len(parts) >= 4:
         return {
-            'email': parts[0],
-            'password': parts[1],
-            'client_id': parts[2],
-            'refresh_token': parts[3]
+            "email": parts[0],
+            "password": parts[1],
+            "client_id": parts[2],
+            "refresh_token": parts[3],
         }
     return None
 
 
 # ==================== Graph API 方式 ====================
+
 
 def get_access_token_graph_result(client_id: str, refresh_token: str) -> Dict[str, Any]:
     """获取 Graph API access_token（包含错误详情）"""
@@ -1015,9 +1124,9 @@ def get_access_token_graph_result(client_id: str, refresh_token: str) -> Dict[st
                 "client_id": client_id,
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
-                "scope": "https://graph.microsoft.com/.default"
+                "scope": "https://graph.microsoft.com/.default",
             },
-            timeout=30
+            timeout=30,
         )
 
         if res.status_code != 200:
@@ -1029,8 +1138,8 @@ def get_access_token_graph_result(client_id: str, refresh_token: str) -> Dict[st
                     "获取访问令牌失败",
                     "GraphAPIError",
                     res.status_code,
-                    details
-                )
+                    details,
+                ),
             }
 
         payload = res.json()
@@ -1043,8 +1152,8 @@ def get_access_token_graph_result(client_id: str, refresh_token: str) -> Dict[st
                     "获取访问令牌失败",
                     "GraphAPIError",
                     res.status_code,
-                    payload
-                )
+                    payload,
+                ),
             }
 
         return {"success": True, "access_token": access_token}
@@ -1056,8 +1165,8 @@ def get_access_token_graph_result(client_id: str, refresh_token: str) -> Dict[st
                 "获取访问令牌失败",
                 type(exc).__name__,
                 500,
-                str(exc)
-            )
+                str(exc),
+            ),
         }
 
 
@@ -1069,7 +1178,13 @@ def get_access_token_graph(client_id: str, refresh_token: str) -> Optional[str]:
     return None
 
 
-def get_emails_graph(client_id: str, refresh_token: str, folder: str = 'inbox', skip: int = 0, top: int = 20) -> Dict[str, Any]:
+def get_emails_graph(
+    client_id: str,
+    refresh_token: str,
+    folder: str = "inbox",
+    skip: int = 0,
+    top: int = 20,
+) -> Dict[str, Any]:
     """使用 Graph API 获取邮件列表（支持分页和文件夹选择）"""
     token_result = get_access_token_graph_result(client_id, refresh_token)
     if not token_result.get("success"):
@@ -1081,23 +1196,23 @@ def get_emails_graph(client_id: str, refresh_token: str, folder: str = 'inbox', 
         # 根据文件夹类型选择 API 端点
         # 使用 Well-known folder names，这些是 Microsoft Graph API 的标准文件夹名称
         folder_map = {
-            'inbox': 'inbox',
-            'junkemail': 'junkemail',  # 垃圾邮件的标准名称
-            'deleteditems': 'deleteditems',  # 已删除邮件的标准名称
-            'trash': 'deleteditems'  # 垃圾箱的别名
+            "inbox": "inbox",
+            "junkemail": "junkemail",  # 垃圾邮件的标准名称
+            "deleteditems": "deleteditems",  # 已删除邮件的标准名称
+            "trash": "deleteditems",  # 垃圾箱的别名
         }
-        folder_name = folder_map.get(folder.lower(), 'inbox')
+        folder_name = folder_map.get(folder.lower(), "inbox")
 
         url = f"https://graph.microsoft.com/v1.0/me/mailFolders/{folder_name}/messages"
         params = {
             "$top": top,
             "$skip": skip,
             "$select": "id,subject,from,receivedDateTime,isRead,hasAttachments,bodyPreview",
-            "$orderby": "receivedDateTime desc"
+            "$orderby": "receivedDateTime desc",
         }
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Prefer": "outlook.body-content-type='text'"
+            "Prefer": "outlook.body-content-type='text'",
         }
 
         res = requests.get(url, headers=headers, params=params, timeout=30)
@@ -1111,8 +1226,8 @@ def get_emails_graph(client_id: str, refresh_token: str, folder: str = 'inbox', 
                     "获取邮件失败，请检查账号配置",
                     "GraphAPIError",
                     res.status_code,
-                    details
-                )
+                    details,
+                ),
             }
 
         return {"success": True, "emails": res.json().get("value", [])}
@@ -1124,17 +1239,19 @@ def get_emails_graph(client_id: str, refresh_token: str, folder: str = 'inbox', 
                 "获取邮件失败，请检查账号配置",
                 type(exc).__name__,
                 500,
-                str(exc)
-            )
+                str(exc),
+            ),
         }
 
 
-def get_email_detail_graph(client_id: str, refresh_token: str, message_id: str) -> Optional[Dict]:
+def get_email_detail_graph(
+    client_id: str, refresh_token: str, message_id: str
+) -> Optional[Dict]:
     """使用 Graph API 获取邮件详情"""
     access_token = get_access_token_graph(client_id, refresh_token)
     if not access_token:
         return None
-    
+
     try:
         url = f"https://graph.microsoft.com/v1.0/me/messages/{message_id}"
         params = {
@@ -1142,20 +1259,21 @@ def get_email_detail_graph(client_id: str, refresh_token: str, message_id: str) 
         }
         headers = {
             "Authorization": f"Bearer {access_token}",
-            "Prefer": "outlook.body-content-type='html'"
+            "Prefer": "outlook.body-content-type='html'",
         }
-        
+
         res = requests.get(url, headers=headers, params=params, timeout=30)
-        
+
         if res.status_code != 200:
             return None
-        
+
         return res.json()
     except Exception:
         return None
 
 
 # ==================== IMAP 方式 ====================
+
 
 def get_access_token_imap_result(client_id: str, refresh_token: str) -> Dict[str, Any]:
     """获取 IMAP access_token（包含错误详情）"""
@@ -1166,9 +1284,9 @@ def get_access_token_imap_result(client_id: str, refresh_token: str) -> Dict[str
                 "client_id": client_id,
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
-                "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access"
+                "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access",
             },
-            timeout=30
+            timeout=30,
         )
 
         if res.status_code != 200:
@@ -1180,8 +1298,8 @@ def get_access_token_imap_result(client_id: str, refresh_token: str) -> Dict[str
                     "获取访问令牌失败",
                     "IMAPError",
                     res.status_code,
-                    details
-                )
+                    details,
+                ),
             }
 
         payload = res.json()
@@ -1194,8 +1312,8 @@ def get_access_token_imap_result(client_id: str, refresh_token: str) -> Dict[str
                     "获取访问令牌失败",
                     "IMAPError",
                     res.status_code,
-                    payload
-                )
+                    payload,
+                ),
             }
 
         return {"success": True, "access_token": access_token}
@@ -1207,8 +1325,8 @@ def get_access_token_imap_result(client_id: str, refresh_token: str) -> Dict[str
                 "获取访问令牌失败",
                 type(exc).__name__,
                 500,
-                str(exc)
-            )
+                str(exc),
+            ),
         }
 
 
@@ -1220,12 +1338,29 @@ def get_access_token_imap(client_id: str, refresh_token: str) -> Optional[str]:
     return None
 
 
-def get_emails_imap(account: str, client_id: str, refresh_token: str, folder: str = 'inbox', skip: int = 0, top: int = 20) -> Dict[str, Any]:
+def get_emails_imap(
+    account: str,
+    client_id: str,
+    refresh_token: str,
+    folder: str = "inbox",
+    skip: int = 0,
+    top: int = 20,
+) -> Dict[str, Any]:
     """使用 IMAP 获取邮件列表（支持分页和文件夹选择）- 默认使用新版服务器"""
-    return get_emails_imap_with_server(account, client_id, refresh_token, folder, skip, top, IMAP_SERVER_NEW)
+    return get_emails_imap_with_server(
+        account, client_id, refresh_token, folder, skip, top, IMAP_SERVER_NEW
+    )
 
 
-def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str, folder: str = 'inbox', skip: int = 0, top: int = 20, server: str = IMAP_SERVER_NEW) -> Dict[str, Any]:
+def get_emails_imap_with_server(
+    account: str,
+    client_id: str,
+    refresh_token: str,
+    folder: str = "inbox",
+    skip: int = 0,
+    top: int = 20,
+    server: str = IMAP_SERVER_NEW,
+) -> Dict[str, Any]:
     """使用 IMAP 获取邮件列表（支持分页、文件夹选择和服务器选择）"""
     token_result = get_access_token_imap_result(client_id, refresh_token)
     if not token_result.get("success"):
@@ -1236,16 +1371,28 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
     connection = None
     try:
         connection = imaplib.IMAP4_SSL(server, IMAP_PORT)
-        auth_string = f"user={account}\1auth=Bearer {access_token}\1\1".encode('utf-8')
-        connection.authenticate('XOAUTH2', lambda x: auth_string)
+        auth_string = f"user={account}\1auth=Bearer {access_token}\1\1".encode("utf-8")
+        connection.authenticate("XOAUTH2", lambda x: auth_string)
 
         # 根据文件夹类型选择 IMAP 文件夹
         # 尝试多种可能的文件夹名称
         folder_map = {
-            'inbox': ['"INBOX"', 'INBOX'],
-            'junkemail': ['"Junk"', '"Junk Email"', 'Junk', '"垃圾邮件"'],
-            'deleteditems': ['"Deleted"', '"Deleted Items"', '"Trash"', 'Deleted', '"已删除邮件"'],
-            'trash': ['"Deleted"', '"Deleted Items"', '"Trash"', 'Deleted', '"已删除邮件"']
+            "inbox": ['"INBOX"', "INBOX"],
+            "junkemail": ['"Junk"', '"Junk Email"', "Junk", '"垃圾邮件"'],
+            "deleteditems": [
+                '"Deleted"',
+                '"Deleted Items"',
+                '"Trash"',
+                "Deleted",
+                '"已删除邮件"',
+            ],
+            "trash": [
+                '"Deleted"',
+                '"Deleted Items"',
+                '"Trash"',
+                "Deleted",
+                '"已删除邮件"',
+            ],
         }
         possible_folders = folder_map.get(folder.lower(), ['"INBOX"'])
 
@@ -1255,7 +1402,7 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
         for imap_folder in possible_folders:
             try:
                 status, response = connection.select(imap_folder, readonly=True)
-                if status == 'OK':
+                if status == "OK":
                     selected_folder = imap_folder
                     break
                 else:
@@ -1269,22 +1416,24 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
             try:
                 status, folder_list = connection.list()
                 available_folders = []
-                if status == 'OK' and folder_list:
+                if status == "OK" and folder_list:
                     for folder_item in folder_list:
                         if isinstance(folder_item, bytes):
-                            available_folders.append(folder_item.decode('utf-8', errors='ignore'))
+                            available_folders.append(
+                                folder_item.decode("utf-8", errors="ignore")
+                            )
                         else:
                             available_folders.append(str(folder_item))
-                
+
                 error_details = {
                     "last_error": last_error,
                     "tried_folders": possible_folders,
-                    "available_folders": available_folders[:10]  # 只返回前10个
+                    "available_folders": available_folders[:10],  # 只返回前10个
                 }
             except Exception:
                 error_details = {
                     "last_error": last_error,
-                    "tried_folders": possible_folders
+                    "tried_folders": possible_folders,
                 }
 
             return {
@@ -1294,12 +1443,12 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
                     f"无法访问文件夹，请检查账号配置",
                     "IMAPSelectError",
                     500,
-                    error_details
-                )
+                    error_details,
+                ),
             }
 
-        status, messages = connection.search(None, 'ALL')
-        if status != 'OK':
+        status, messages = connection.search(None, "ALL")
+        if status != "OK":
             return {
                 "success": False,
                 "error": build_error_payload(
@@ -1307,8 +1456,8 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
                     "获取邮件失败，请检查账号配置",
                     "IMAPSearchError",
                     500,
-                    f"search status={status}"
-                )
+                    f"search status={status}",
+                ),
             }
         if not messages or not messages[0]:
             return {"success": True, "emails": []}
@@ -1327,18 +1476,26 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
         emails = []
         for msg_id in paged_ids:
             try:
-                status, msg_data = connection.fetch(msg_id, '(RFC822)')
-                if status == 'OK' and msg_data and msg_data[0]:
+                status, msg_data = connection.fetch(msg_id, "(RFC822)")
+                if status == "OK" and msg_data and msg_data[0]:
                     raw_email = msg_data[0][1]
                     msg = email.message_from_bytes(raw_email)
 
-                    emails.append({
-                        'id': msg_id.decode() if isinstance(msg_id, bytes) else str(msg_id),
-                        'subject': decode_header_value(msg.get("Subject", "无主题")),
-                        'from': decode_header_value(msg.get("From", "未知发件人")),
-                        'date': msg.get("Date", "未知时间"),
-                        'body_preview': get_email_body(msg)[:200] + "..." if len(get_email_body(msg)) > 200 else get_email_body(msg)
-                    })
+                    emails.append(
+                        {
+                            "id": msg_id.decode()
+                            if isinstance(msg_id, bytes)
+                            else str(msg_id),
+                            "subject": decode_header_value(
+                                msg.get("Subject", "无主题")
+                            ),
+                            "from": decode_header_value(msg.get("From", "未知发件人")),
+                            "date": msg.get("Date", "未知时间"),
+                            "body_preview": get_email_body(msg)[:200] + "..."
+                            if len(get_email_body(msg)) > 200
+                            else get_email_body(msg),
+                        }
+                    )
             except Exception:
                 continue
 
@@ -1351,8 +1508,8 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
                 "获取邮件失败，请检查账号配置",
                 type(exc).__name__,
                 500,
-                str(exc)
-            )
+                str(exc),
+            ),
         }
     finally:
         if connection:
@@ -1362,7 +1519,13 @@ def get_emails_imap_with_server(account: str, client_id: str, refresh_token: str
                 pass
 
 
-def get_email_detail_imap(account: str, client_id: str, refresh_token: str, message_id: str, folder: str = 'inbox') -> Optional[Dict]:
+def get_email_detail_imap(
+    account: str,
+    client_id: str,
+    refresh_token: str,
+    message_id: str,
+    folder: str = "inbox",
+) -> Optional[Dict]:
     """使用 IMAP 获取邮件详情"""
     access_token = get_access_token_imap(client_id, refresh_token)
     if not access_token:
@@ -1371,15 +1534,27 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
     connection = None
     try:
         connection = imaplib.IMAP4_SSL(IMAP_SERVER_NEW, IMAP_PORT)
-        auth_string = f"user={account}\1auth=Bearer {access_token}\1\1".encode('utf-8')
-        connection.authenticate('XOAUTH2', lambda x: auth_string)
+        auth_string = f"user={account}\1auth=Bearer {access_token}\1\1".encode("utf-8")
+        connection.authenticate("XOAUTH2", lambda x: auth_string)
 
         # 根据文件夹类型选择 IMAP 文件夹
         folder_map = {
-            'inbox': ['"INBOX"', 'INBOX'],
-            'junkemail': ['"Junk"', '"Junk Email"', 'Junk', '"垃圾邮件"'],
-            'deleteditems': ['"Deleted"', '"Deleted Items"', '"Trash"', 'Deleted', '"已删除邮件"'],
-            'trash': ['"Deleted"', '"Deleted Items"', '"Trash"', 'Deleted', '"已删除邮件"']
+            "inbox": ['"INBOX"', "INBOX"],
+            "junkemail": ['"Junk"', '"Junk Email"', "Junk", '"垃圾邮件"'],
+            "deleteditems": [
+                '"Deleted"',
+                '"Deleted Items"',
+                '"Trash"',
+                "Deleted",
+                '"已删除邮件"',
+            ],
+            "trash": [
+                '"Deleted"',
+                '"Deleted Items"',
+                '"Trash"',
+                "Deleted",
+                '"已删除邮件"',
+            ],
         }
         possible_folders = folder_map.get(folder.lower(), ['"INBOX"'])
 
@@ -1388,7 +1563,7 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
         for imap_folder in possible_folders:
             try:
                 status, response = connection.select(imap_folder, readonly=True)
-                if status == 'OK':
+                if status == "OK":
                     selected_folder = imap_folder
                     break
             except Exception:
@@ -1397,21 +1572,24 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
         if not selected_folder:
             return None
 
-        status, msg_data = connection.fetch(message_id.encode() if isinstance(message_id, str) else message_id, '(RFC822)')
-        if status != 'OK' or not msg_data or not msg_data[0]:
+        status, msg_data = connection.fetch(
+            message_id.encode() if isinstance(message_id, str) else message_id,
+            "(RFC822)",
+        )
+        if status != "OK" or not msg_data or not msg_data[0]:
             return None
 
         raw_email = msg_data[0][1]
         msg = email.message_from_bytes(raw_email)
 
         return {
-            'id': message_id,
-            'subject': decode_header_value(msg.get("Subject", "无主题")),
-            'from': decode_header_value(msg.get("From", "未知发件人")),
-            'to': decode_header_value(msg.get("To", "")),
-            'cc': decode_header_value(msg.get("Cc", "")),
-            'date': msg.get("Date", "未知时间"),
-            'body': get_email_body(msg)
+            "id": message_id,
+            "subject": decode_header_value(msg.get("Subject", "无主题")),
+            "from": decode_header_value(msg.get("From", "未知发件人")),
+            "to": decode_header_value(msg.get("To", "")),
+            "cc": decode_header_value(msg.get("Cc", "")),
+            "date": msg.get("Date", "未知时间"),
+            "body": get_email_body(msg),
         }
     except Exception:
         return None
@@ -1425,52 +1603,66 @@ def get_email_detail_imap(account: str, client_id: str, refresh_token: str, mess
 
 # ==================== 登录验证 ====================
 
+
 def login_required(f):
     """登录验证装饰器"""
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        if not session.get('logged_in'):
-            if request.is_json or request.path.startswith('/api/'):
-                return jsonify({'success': False, 'error': '请先登录', 'need_login': True}), 401
-            return redirect(url_for('login'))
+        if not session.get("logged_in"):
+            if request.is_json or request.path.startswith("/api/"):
+                return jsonify(
+                    {"success": False, "error": "请先登录", "need_login": True}
+                ), 401
+            return redirect(url_for("login"))
         return f(*args, **kwargs)
+
     return decorated_function
 
 
 def external_api_required(f):
     """外部 API 验证（X-API-Key == SECRET_KEY）"""
+
     @wraps(f)
     def decorated_function(*args, **kwargs):
-        api_key = request.headers.get('X-API-Key', '')
-        if not api_key or not secret_key or not hmac.compare_digest(api_key, secret_key):
-            return jsonify({'success': False, 'error': 'Unauthorized'}), 401
+        api_key = request.headers.get("X-API-Key", "")
+        if (
+            not api_key
+            or not secret_key
+            or not hmac.compare_digest(api_key, secret_key)
+        ):
+            return jsonify({"success": False, "error": "Unauthorized"}), 401
         return f(*args, **kwargs)
+
     return decorated_function
 
 
 # ==================== Flask 路由 ====================
 
-@app.route('/login', methods=['GET', 'POST'])
+
+@app.route("/login", methods=["GET", "POST"])
 @csrf_exempt  # 登录接口排除CSRF保护（用户未登录时无法获取token）
 def login():
     """登录页面"""
-    if request.method == 'POST':
+    if request.method == "POST":
         try:
             # 获取客户端 IP
-            client_ip = request.headers.get('X-Forwarded-For', request.remote_addr)
+            client_ip = request.headers.get("X-Forwarded-For", request.remote_addr)
             if client_ip:
-                client_ip = client_ip.split(',')[0].strip()
+                client_ip = client_ip.split(",")[0].strip()
 
             # 检查速率限制
             allowed, remaining_time = check_rate_limit(client_ip)
             if not allowed:
-                return jsonify({
-                    'success': False,
-                    'error': f'登录失败次数过多，请在 {remaining_time} 秒后重试'
-                }), 429
+                return jsonify(
+                    {
+                        "success": False,
+                        "error": f"登录失败次数过多，请在 {remaining_time} 秒后重试",
+                    }
+                ), 429
 
             data = request.json if request.is_json else request.form
-            password = data.get('password', '')
+            password = data.get("password", "")
 
             # 从数据库获取密码哈希
             stored_password = get_login_password()
@@ -1479,70 +1671,73 @@ def login():
             if verify_password(password, stored_password):
                 # 登录成功，重置失败记录
                 reset_login_attempts(client_ip)
-                session['logged_in'] = True
+                session["logged_in"] = True
                 session.permanent = True
-                return jsonify({'success': True, 'message': '登录成功'})
+                return jsonify({"success": True, "message": "登录成功"})
             else:
                 # 登录失败，记录失败次数
                 record_login_failure(client_ip)
-                return jsonify({'success': False, 'error': '密码错误'})
+                return jsonify({"success": False, "error": "密码错误"})
         except Exception as e:
             print(f"Login error: {e}")
             import traceback
+
             traceback.print_exc()
-            return jsonify({'success': False, 'error': f'登录处理失败: {str(e)}'}), 500
+            return jsonify({"success": False, "error": f"登录处理失败: {str(e)}"}), 500
 
     # GET 请求返回登录页面
-    return render_template('login.html')
+    return render_template("login.html")
 
 
-@app.route('/logout')
+@app.route("/logout")
 def logout():
     """退出登录"""
-    session.pop('logged_in', None)
-    return redirect(url_for('login'))
+    session.pop("logged_in", None)
+    return redirect(url_for("login"))
 
 
-@app.route('/')
+@app.route("/")
 @login_required
 def index():
     """主页"""
-    return render_template('index.html')
+    return render_template("index.html")
 
 
-@app.route('/api/csrf-token', methods=['GET'])
+@app.route("/api/csrf-token", methods=["GET"])
 @csrf_exempt  # CSRF token获取接口排除CSRF保护
 def get_csrf_token():
     """获取CSRF Token"""
     if CSRF_AVAILABLE:
         token = generate_csrf()
-        return jsonify({'csrf_token': token})
+        return jsonify({"csrf_token": token})
     else:
-        return jsonify({'csrf_token': None, 'csrf_disabled': True})
+        return jsonify({"csrf_token": None, "csrf_disabled": True})
 
 
-
-
-@app.route('/api/accounts/export')
+@app.route("/api/accounts/export")
 @login_required
 def api_export_all_accounts():
     """导出所有邮箱账号为 TXT 文件（需要二次验证）"""
     # 检查二次验证token
-    verify_token = request.args.get('verify_token')
-    if not verify_token or not session.get('export_verify_token') or verify_token != session.get('export_verify_token'):
-        return jsonify({'success': False, 'error': '需要二次验证', 'need_verify': True})
+    verify_token = request.args.get("verify_token")
+    if (
+        not verify_token
+        or not session.get("export_verify_token")
+        or verify_token != session.get("export_verify_token")
+    ):
+        return jsonify({"success": False, "error": "需要二次验证", "need_verify": True})
 
     # 清除验证token（一次性使用）
-    session.pop('export_verify_token', None)
+    session.pop("export_verify_token", None)
 
     # 使用 load_accounts 获取所有账号（自动解密）
     accounts = load_accounts()
 
     if not accounts:
-        return jsonify({'success': False, 'error': '没有邮箱账号'})
+        return jsonify({"success": False, "error": "没有邮箱账号"})
 
     # 记录审计日志
-    log_audit('export', 'all_accounts', None, f"导出所有账号，共 {len(accounts)} 个")
+    log_audit("export", "all_accounts", None, f"导出所有账号，共 {len(accounts)} 个")
 
     # 生成导出内容（格式：email----password----client_id----refresh_token）
     lines = []
@@ -1550,7 +1745,7 @@ def api_export_all_accounts():
         line = f"{acc['email']}----{acc.get('password', '')}----{acc['client_id']}----{acc['refresh_token']}"
         lines.append(line)
 
-    content = '\n'.join(lines)
+    content = "\n".join(lines)
 
     # 生成文件名（使用 URL 编码处理中文）
     filename = f"all_accounts_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -1559,21 +1754,21 @@ def api_export_all_accounts():
     # 返回文件下载响应
     return Response(
         content,
-        mimetype='text/plain; charset=utf-8',
+        mimetype="text/plain; charset=utf-8",
         headers={
-            'Content-Disposition': f"attachment; filename*=UTF-8''{encoded_filename}"
-        }
+            "Content-Disposition": f"attachment; filename*=UTF-8''{encoded_filename}"
+        },
     )
 
 
-@app.route('/api/external/checkout', methods=['POST'])
+@app.route("/api/external/checkout", methods=["POST"])
 @csrf_exempt
 @external_api_required
 def api_external_checkout_account():
     """外部领取邮箱（简化版）"""
     data = request.json or {}
-    owner = data.get('owner')
-    ttl_seconds = data.get('ttl_seconds', 900)
+    owner = data.get("owner")
+    ttl_seconds = data.get("ttl_seconds", 900)
     try:
         ttl_seconds = int(ttl_seconds)
     except Exception:
@@ -1586,7 +1781,7 @@ def api_external_checkout_account():
         # 清理过期租约
         db.execute("DELETE FROM account_leases WHERE expires_at <= CURRENT_TIMESTAMP")
 
-        row = db.execute(f'''
+        row = db.execute(f"""
             SELECT a.id, a.email
             FROM accounts a
             LEFT JOIN account_leases l ON a.id = l.account_id
@@ -1594,63 +1789,441 @@ def api_external_checkout_account():
             AND l.account_id IS NULL
             ORDER BY a.id ASC
             LIMIT 1
-        ''').fetchone()
+        """).fetchone()
 
         if not row:
             db.commit()
-            return jsonify({'success': False, 'error': '没有可用邮箱'}), 404
+            return jsonify({"success": False, "error": "没有可用邮箱"}), 404
 
         lease_id = uuid.uuid4().hex
-        expires_at = (datetime.utcnow() + timedelta(seconds=ttl_seconds)).strftime('%Y-%m-%d %H:%M:%S')
-        db.execute('''
+        expires_at = (datetime.utcnow() + timedelta(seconds=ttl_seconds)).strftime(
+            "%Y-%m-%d %H:%M:%S"
+        )
+        db.execute(
+            """
             INSERT INTO account_leases (lease_id, account_id, owner, expires_at)
             VALUES (?, ?, ?, ?)
-        ''', (lease_id, row['id'], owner, expires_at))
+        """,
+            (lease_id, row["id"], owner, expires_at),
+        )
         db.commit()
 
-        log_audit('checkout', 'account', str(row['id']), f"lease_id={lease_id}, owner={owner}")
-        return jsonify({
-            'success': True,
-            'lease_id': lease_id,
-            'account_id': row['id'],
-            'email': row['email'],
-            'expires_at': expires_at
-        })
+        log_audit(
+            "checkout", "account", str(row["id"]), f"lease_id={lease_id}, owner={owner}"
+        )
+        return jsonify(
+            {
+                "success": True,
+                "lease_id": lease_id,
+                "account_id": row["id"],
+                "email": row["email"],
+                "expires_at": expires_at,
+            }
+        )
     except Exception:
         db.execute("ROLLBACK")
-        return jsonify({'success': False, 'error': '领取失败'}), 500
+        return jsonify({"success": False, "error": "领取失败"}), 500
 
 
-@app.route('/api/external/checkout/complete', methods=['POST'])
+@app.route("/api/external/checkout/complete", methods=["POST"])
 @csrf_exempt
 @external_api_required
 def api_external_checkout_complete():
     """外部完成/释放邮箱"""
     data = request.json or {}
-    lease_id = data.get('lease_id', '')
-    result = data.get('result', '')
+    lease_id = data.get("lease_id", "")
+    result = data.get("result", "")
     if not lease_id:
-        return jsonify({'success': False, 'error': '参数不完整'}), 400
+        return jsonify({"success": False, "error": "参数不完整"}), 400
 
     db = get_db()
     try:
-        row = db.execute('SELECT account_id FROM account_leases WHERE lease_id = ?', (lease_id,)).fetchone()
+        row = db.execute(
+            "SELECT account_id FROM account_leases WHERE lease_id = ?", (lease_id,)
+        ).fetchone()
         if not row:
-            return jsonify({'success': False, 'error': '租约不存在'}), 404
-        db.execute('DELETE FROM account_leases WHERE lease_id = ?', (lease_id,))
+            return jsonify({"success": False, "error": "租约不存在"}), 404
+        db.execute("DELETE FROM account_leases WHERE lease_id = ?", (lease_id,))
         db.commit()
-        log_audit('checkout_complete', 'account', str(row['account_id']), f"lease_id={lease_id}, result={result}")
-        return jsonify({'success': True})
+        log_audit(
+            "checkout_complete",
+            "account",
+            str(row["account_id"]),
+            f"lease_id={lease_id}, result={result}",
+        )
+        return jsonify({"success": True})
     except Exception:
-        return jsonify({'success': False, 'error': '释放失败'}), 500
+        return jsonify({"success": False, "error": "释放失败"}), 500
 
 
-@app.route('/api/export/verify', methods=['POST'])
+@app.route("/api/external/account/<lease_id>", methods=["GET"])
+@csrf_exempt
+@external_api_required
+def api_external_get_account(lease_id):
+    """外部获取租约账号的完整信息（包含凭据）"""
+    db = get_db()
+    try:
+        # 验证租约是否存在且未过期
+        lease_row = db.execute(
+            """
+            SELECT account_id, expires_at 
+            FROM account_leases 
+            WHERE lease_id = ?
+        """,
+            (lease_id,),
+        ).fetchone()
+
+        if not lease_row:
+            return jsonify({"success": False, "error": "租约不存在"}), 404
+
+        # 检查是否过期
+        expires_at = datetime.strptime(lease_row["expires_at"], "%Y-%m-%d %H:%M:%S")
+        if expires_at <= datetime.utcnow():
+            return jsonify({"success": False, "error": "租约已过期"}), 410
+
+        # 获取账号信息
+        account_row = db.execute(
+            """
+            SELECT id, email, password, client_id, refresh_token, remark, status
+            FROM accounts
+            WHERE id = ?
+        """,
+            (lease_row["account_id"],),
+        ).fetchone()
+
+        if not account_row:
+            return jsonify({"success": False, "error": "账号不存在"}), 404
+
+        # 解密敏感信息
+        account_data = {
+            "account_id": account_row["id"],
+            "email": account_row["email"],
+            "password": decrypt_data(account_row["password"])
+            if account_row["password"]
+            else None,
+            "client_id": decrypt_data(account_row["client_id"]),
+            "refresh_token": decrypt_data(account_row["refresh_token"]),
+            "remark": account_row["remark"],
+            "status": account_row["status"],
+            "lease_expires_at": lease_row["expires_at"],
+        }
+
+        log_audit(
+            "external_get_account",
+            "account",
+            str(account_row["id"]),
+            f"lease_id={lease_id}",
+        )
+        return jsonify({"success": True, "account": account_data})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"获取账号失败: {str(e)}"}), 500
+
+
+@app.route("/api/external/emails/<lease_id>", methods=["GET"])
+@csrf_exempt
+@external_api_required
+def api_external_get_emails(lease_id):
+    """外部获取租约账号的邮件列表"""
+    db = get_db()
+    try:
+        # 验证租约
+        lease_row = db.execute(
+            """
+            SELECT account_id, expires_at 
+            FROM account_leases 
+            WHERE lease_id = ?
+        """,
+            (lease_id,),
+        ).fetchone()
+
+        if not lease_row:
+            return jsonify({"success": False, "error": "租约不存在"}), 404
+
+        # 检查是否过期
+        expires_at = datetime.strptime(lease_row["expires_at"], "%Y-%m-%d %H:%M:%S")
+        if expires_at <= datetime.utcnow():
+            return jsonify({"success": False, "error": "租约已过期"}), 410
+
+        # 获取账号信息
+        account_row = db.execute(
+            """
+            SELECT email, client_id, refresh_token
+            FROM accounts
+            WHERE id = ?
+        """,
+            (lease_row["account_id"],),
+        ).fetchone()
+
+        if not account_row:
+            return jsonify({"success": False, "error": "账号不存在"}), 404
+
+        # 获取邮件参数
+        folder = request.args.get("folder", "inbox")
+        skip = int(request.args.get("skip", 0))
+        top = int(request.args.get("top", 20))
+
+        # 解密凭据
+        client_id = decrypt_data(account_row["client_id"])
+        refresh_token = decrypt_data(account_row["refresh_token"])
+
+        # 收集错误
+        all_errors = {}
+
+        # 1. 尝试 Graph API
+        graph_result = get_emails_graph(client_id, refresh_token, folder, skip, top)
+        if graph_result.get("success"):
+            emails = graph_result.get("emails", [])
+            formatted = []
+            for e in emails:
+                formatted.append(
+                    {
+                        "id": e.get("id"),
+                        "subject": e.get("subject", "无主题"),
+                        "from": e.get("from", {})
+                        .get("emailAddress", {})
+                        .get("address", "未知"),
+                        "date": e.get("receivedDateTime", ""),
+                        "is_read": e.get("isRead", False),
+                        "has_attachments": e.get("hasAttachments", False),
+                        "body_preview": e.get("bodyPreview", ""),
+                    }
+                )
+
+            log_audit(
+                "external_get_emails",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, count={len(formatted)}",
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "emails": formatted,
+                    "method": "Graph API",
+                    "has_more": len(formatted) >= top,
+                }
+            )
+        else:
+            all_errors["graph"] = graph_result.get("error")
+
+        # 2. 尝试 IMAP (新服务器)
+        imap_new_result = get_emails_imap_with_server(
+            account_row["email"],
+            client_id,
+            refresh_token,
+            folder,
+            skip,
+            top,
+            IMAP_SERVER_NEW,
+        )
+        if imap_new_result.get("success"):
+            log_audit(
+                "external_get_emails",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, method=imap_new",
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "emails": imap_new_result.get("emails", []),
+                    "method": "IMAP (New)",
+                    "has_more": False,
+                }
+            )
+        else:
+            all_errors["imap_new"] = imap_new_result.get("error")
+
+        # 3. 尝试 IMAP (旧服务器)
+        imap_old_result = get_emails_imap_with_server(
+            account_row["email"],
+            client_id,
+            refresh_token,
+            folder,
+            skip,
+            top,
+            IMAP_SERVER_OLD,
+        )
+        if imap_old_result.get("success"):
+            log_audit(
+                "external_get_emails",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, method=imap_old",
+            )
+            return jsonify(
+                {
+                    "success": True,
+                    "emails": imap_old_result.get("emails", []),
+                    "method": "IMAP (Old)",
+                    "has_more": False,
+                }
+            )
+        else:
+            all_errors["imap_old"] = imap_old_result.get("error")
+
+        return jsonify(
+            {
+                "success": False,
+                "error": "无法获取邮件，所有方式均失败",
+                "details": all_errors,
+            }
+        )
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"获取邮件失败: {str(e)}"}), 500
+
+
+@app.route("/api/external/email/<lease_id>/<path:message_id>", methods=["GET"])
+@csrf_exempt
+@external_api_required
+def api_external_get_email_detail(lease_id, message_id):
+    """外部获取租约账号的邮件详情"""
+    db = get_db()
+    try:
+        # 验证租约
+        lease_row = db.execute(
+            """
+            SELECT account_id, expires_at 
+            FROM account_leases 
+            WHERE lease_id = ?
+        """,
+            (lease_id,),
+        ).fetchone()
+
+        if not lease_row:
+            return jsonify({"success": False, "error": "租约不存在"}), 404
+
+        # 检查是否过期
+        expires_at = datetime.strptime(lease_row["expires_at"], "%Y-%m-%d %H:%M:%S")
+        if expires_at <= datetime.utcnow():
+            return jsonify({"success": False, "error": "租约已过期"}), 410
+
+        # 获取账号信息
+        account_row = db.execute(
+            """
+            SELECT email, client_id, refresh_token
+            FROM accounts
+            WHERE id = ?
+        """,
+            (lease_row["account_id"],),
+        ).fetchone()
+
+        if not account_row:
+            return jsonify({"success": False, "error": "账号不存在"}), 404
+
+        # 解密凭据
+        client_id = decrypt_data(account_row["client_id"])
+        refresh_token = decrypt_data(account_row["refresh_token"])
+
+        # 获取参数
+        folder = request.args.get("folder", "inbox")
+
+        # 1. 尝试 Graph API
+        email_detail = get_email_detail_graph(client_id, refresh_token, message_id)
+        if email_detail:
+            log_audit(
+                "external_get_email_detail",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, message_id={message_id}",
+            )
+            return jsonify(
+                {"success": True, "email": email_detail, "method": "Graph API"}
+            )
+
+        # 2. 尝试 IMAP
+        email_detail = get_email_detail_imap(
+            account_row["email"], client_id, refresh_token, message_id, folder
+        )
+        if email_detail:
+            log_audit(
+                "external_get_email_detail",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, message_id={message_id}, method=imap",
+            )
+            return jsonify({"success": True, "email": email_detail, "method": "IMAP"})
+
+        return jsonify({"success": False, "error": "无法获取邮件详情"})
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"获取邮件详情失败: {str(e)}"}), 500
+
+
+@app.route("/api/external/emails/delete", methods=["POST"])
+@csrf_exempt
+@external_api_required
+def api_external_delete_emails():
+    """外部删除租约账号的邮件"""
+    data = request.json or {}
+    lease_id = data.get("lease_id", "")
+    message_ids = data.get("message_ids", [])
+
+    if not lease_id or not message_ids:
+        return jsonify({"success": False, "error": "参数不完整"}), 400
+
+    db = get_db()
+    try:
+        # 验证租约
+        lease_row = db.execute(
+            """
+            SELECT account_id, expires_at 
+            FROM account_leases 
+            WHERE lease_id = ?
+        """,
+            (lease_id,),
+        ).fetchone()
+
+        if not lease_row:
+            return jsonify({"success": False, "error": "租约不存在"}), 404
+
+        # 检查是否过期
+        expires_at = datetime.strptime(lease_row["expires_at"], "%Y-%m-%d %H:%M:%S")
+        if expires_at <= datetime.utcnow():
+            return jsonify({"success": False, "error": "租约已过期"}), 410
+
+        # 获取账号信息
+        account_row = db.execute(
+            """
+            SELECT client_id, refresh_token
+            FROM accounts
+            WHERE id = ?
+        """,
+            (lease_row["account_id"],),
+        ).fetchone()
+
+        if not account_row:
+            return jsonify({"success": False, "error": "账号不存在"}), 404
+
+        # 解密凭据
+        client_id = decrypt_data(account_row["client_id"])
+        refresh_token = decrypt_data(account_row["refresh_token"])
+
+        # 删除邮件（仅支持 Graph API）
+        result = delete_emails_graph(client_id, refresh_token, message_ids)
+
+        if result["success"]:
+            log_audit(
+                "external_delete_emails",
+                "account",
+                str(lease_row["account_id"]),
+                f"lease_id={lease_id}, count={result.get('success_count', 0)}",
+            )
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({"success": False, "error": f"删除邮件失败: {str(e)}"}), 500
+
+
+@app.route("/api/export/verify", methods=["POST"])
 @login_required
 def api_generate_export_verify_token():
     """生成导出验证token（二次验证）"""
     data = request.json
-    password = data.get('password', '')
+    password = data.get("password", "")
 
     # 验证密码
     db = get_db()
@@ -1658,30 +2231,31 @@ def api_generate_export_verify_token():
     result = cursor.fetchone()
 
     if not result:
-        return jsonify({'success': False, 'error': '系统配置错误'})
+        return jsonify({"success": False, "error": "系统配置错误"})
 
     stored_password = result[0]
     if not verify_password(password, stored_password):
-        return jsonify({'success': False, 'error': '密码错误'})
+        return jsonify({"success": False, "error": "密码错误"})
 
     # 生成一次性验证token
     verify_token = secrets.token_urlsafe(32)
-    session['export_verify_token'] = verify_token
+    session["export_verify_token"] = verify_token
 
-    return jsonify({'success': True, 'verify_token': verify_token})
+    return jsonify({"success": True, "verify_token": verify_token})
 
 
 # ==================== 邮箱账号 API ====================
 
-@app.route('/api/accounts', methods=['GET'])
+
+@app.route("/api/accounts", methods=["GET"])
 @login_required
 def api_get_accounts():
     """获取所有账号"""
-    limit = request.args.get('limit', default=100, type=int)
-    offset = request.args.get('offset', default=0, type=int)
-    sort_by = request.args.get('sort_by', default='refresh_time')
-    sort_order = request.args.get('sort_order', default='asc')
-    refresh_status = request.args.get('refresh_status', '').strip().lower()
+    limit = request.args.get("limit", default=100, type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    sort_by = request.args.get("sort_by", default="refresh_time")
+    sort_order = request.args.get("sort_order", default="asc")
+    refresh_status = request.args.get("refresh_status", "").strip().lower()
 
     if limit is None:
         limit = 100
@@ -1695,28 +2269,28 @@ def api_get_accounts():
         offset = 0
 
     sort_fields = {
-        'refresh_time': "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
-        'email': "LOWER(a.email)",
-        'created_at': "a.created_at"
+        "refresh_time": "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
+        "email": "LOWER(a.email)",
+        "created_at": "a.created_at",
     }
-    sort_field = sort_fields.get(sort_by, sort_fields['refresh_time'])
-    sort_dir = 'DESC' if str(sort_order).lower() == 'desc' else 'ASC'
+    sort_field = sort_fields.get(sort_by, sort_fields["refresh_time"])
+    sort_dir = "DESC" if str(sort_order).lower() == "desc" else "ASC"
 
     db = get_db()
 
     # 组装 WHERE 条件
     where_clauses = []
     params = []
-    if refresh_status in ('success', 'failed'):
+    if refresh_status in ("success", "failed"):
         where_clauses.append("l.status = ?")
         params.append(refresh_status)
-    elif refresh_status == 'unknown':
+    elif refresh_status == "unknown":
         where_clauses.append("l.status IS NULL")
 
     where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
 
     # 统计总数
-    count_sql = f'''
+    count_sql = f"""
         SELECT COUNT(DISTINCT a.id) as total
         FROM accounts a
         LEFT JOIN (
@@ -1729,11 +2303,11 @@ def api_get_accounts():
             ) latest ON l1.account_id = latest.account_id AND l1.created_at = latest.max_created
         ) l ON a.id = l.account_id
         {where_sql}
-    '''
-    total = db.execute(count_sql, params).fetchone()['total']
+    """
+    total = db.execute(count_sql, params).fetchone()["total"]
 
     # 获取当前页数据（批量获取最后刷新状态）
-    accounts_sql = f'''
+    accounts_sql = f"""
         SELECT DISTINCT a.*,
                l.status as last_refresh_status, l.error_message as last_refresh_error
         FROM accounts a
@@ -1749,46 +2323,62 @@ def api_get_accounts():
         {where_sql}
         ORDER BY {sort_field} {sort_dir}, a.id ASC
         LIMIT ? OFFSET ?
-    '''
+    """
     accounts = db.execute(accounts_sql, params + [limit, offset]).fetchall()
 
     safe_accounts = []
     for acc in accounts:
-        safe_accounts.append({
-            'id': acc['id'],
-            'email': acc['email'],
-            'client_id': acc['client_id'][:8] + '...' if len(acc['client_id']) > 8 else acc['client_id'],
-            'remark': acc['remark'] if acc['remark'] else '',
-            'status': acc['status'] if acc['status'] else 'active',
-            'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
-            'last_refresh_status': acc['last_refresh_status'],
-            'last_refresh_error': acc['last_refresh_error'],
-            'created_at': acc['created_at'] if acc['created_at'] else '',
-            'updated_at': acc['updated_at'] if acc['updated_at'] else ''
-        })
+        safe_accounts.append(
+            {
+                "id": acc["id"],
+                "email": acc["email"],
+                "client_id": acc["client_id"][:8] + "..."
+                if len(acc["client_id"]) > 8
+                else acc["client_id"],
+                "remark": acc["remark"] if acc["remark"] else "",
+                "status": acc["status"] if acc["status"] else "active",
+                "last_refresh_at": acc["last_refresh_at"]
+                if acc["last_refresh_at"]
+                else "",
+                "last_refresh_status": acc["last_refresh_status"],
+                "last_refresh_error": acc["last_refresh_error"],
+                "created_at": acc["created_at"] if acc["created_at"] else "",
+                "updated_at": acc["updated_at"] if acc["updated_at"] else "",
+            }
+        )
 
-    return jsonify({
-        'success': True,
-        'accounts': safe_accounts,
-        'total': total,
-        'limit': limit,
-        'offset': offset
-    })
+    return jsonify(
+        {
+            "success": True,
+            "accounts": safe_accounts,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
-@app.route('/api/accounts/search', methods=['GET'])
+@app.route("/api/accounts/search", methods=["GET"])
 @login_required
 def api_search_accounts():
     """全局搜索账号"""
-    query = request.args.get('q', '').strip()
-    limit = request.args.get('limit', default=100, type=int)
-    offset = request.args.get('offset', default=0, type=int)
-    sort_by = request.args.get('sort_by', default='created_at')
-    sort_order = request.args.get('sort_order', default='desc')
-    refresh_status = request.args.get('refresh_status', '').strip().lower()
+    query = request.args.get("q", "").strip()
+    limit = request.args.get("limit", default=100, type=int)
+    offset = request.args.get("offset", default=0, type=int)
+    sort_by = request.args.get("sort_by", default="created_at")
+    sort_order = request.args.get("sort_order", default="desc")
+    refresh_status = request.args.get("refresh_status", "").strip().lower()
 
     if not query:
-        return jsonify({'success': True, 'accounts': [], 'total': 0, 'limit': limit, 'offset': offset})
+        return jsonify(
+            {
+                "success": True,
+                "accounts": [],
+                "total": 0,
+                "limit": limit,
+                "offset": offset,
+            }
+        )
 
     if limit is None:
         limit = 100
@@ -1801,24 +2391,25 @@ def api_search_accounts():
         offset = 0
 
     sort_fields = {
-        'refresh_time': "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
-        'email': "LOWER(a.email)",
-        'created_at': "a.created_at"
+        "refresh_time": "COALESCE(a.last_refresh_at, '1970-01-01 00:00:00')",
+        "email": "LOWER(a.email)",
+        "created_at": "a.created_at",
     }
-    sort_field = sort_fields.get(sort_by, sort_fields['created_at'])
-    sort_dir = 'DESC' if str(sort_order).lower() == 'desc' else 'ASC'
+    sort_field = sort_fields.get(sort_by, sort_fields["created_at"])
+    sort_dir = "DESC" if str(sort_order).lower() == "desc" else "ASC"
 
     db = get_db()
-    like_query = f'%{query}%'
+    like_query = f"%{query}%"
     status_filter_sql = ""
     status_filter_params = []
-    if refresh_status in ('success', 'failed'):
+    if refresh_status in ("success", "failed"):
         status_filter_sql = " AND l.status = ?"
         status_filter_params = [refresh_status]
-    elif refresh_status == 'unknown':
+    elif refresh_status == "unknown":
         status_filter_sql = " AND l.status IS NULL"
 
-    count_row = db.execute(f'''
+    count_row = db.execute(
+        f"""
         WITH matched AS (
             SELECT DISTINCT a.id
             FROM accounts a
@@ -1835,10 +2426,13 @@ def api_search_accounts():
             {status_filter_sql}
         )
         SELECT COUNT(*) as total FROM matched
-    ''', (like_query, like_query, *status_filter_params)).fetchone()
-    total = count_row['total'] if count_row else 0
+    """,
+        (like_query, like_query, *status_filter_params),
+    ).fetchone()
+    total = count_row["total"] if count_row else 0
 
-    rows = db.execute(f'''
+    rows = db.execute(
+        f"""
         WITH matched AS (
             SELECT DISTINCT a.id
             FROM accounts a
@@ -1869,33 +2463,43 @@ def api_search_accounts():
         ) l ON a.id = l.account_id
         ORDER BY {sort_field} {sort_dir}, a.id ASC
         LIMIT ? OFFSET ?
-    ''', (like_query, like_query, *status_filter_params, limit, offset)).fetchall()
+    """,
+        (like_query, like_query, *status_filter_params, limit, offset),
+    ).fetchall()
 
     safe_accounts = []
     for acc in rows:
-        safe_accounts.append({
-            'id': acc['id'],
-            'email': acc['email'],
-            'client_id': acc['client_id'][:8] + '...' if len(acc['client_id']) > 8 else acc['client_id'],
-            'remark': acc['remark'] if acc['remark'] else '',
-            'status': acc['status'] if acc['status'] else 'active',
-            'created_at': acc['created_at'] if acc['created_at'] else '',
-            'updated_at': acc['updated_at'] if acc['updated_at'] else '',
-            'last_refresh_at': acc['last_refresh_at'] if acc['last_refresh_at'] else '',
-            'last_refresh_status': acc['last_refresh_status'],
-            'last_refresh_error': acc['last_refresh_error']
-        })
+        safe_accounts.append(
+            {
+                "id": acc["id"],
+                "email": acc["email"],
+                "client_id": acc["client_id"][:8] + "..."
+                if len(acc["client_id"]) > 8
+                else acc["client_id"],
+                "remark": acc["remark"] if acc["remark"] else "",
+                "status": acc["status"] if acc["status"] else "active",
+                "created_at": acc["created_at"] if acc["created_at"] else "",
+                "updated_at": acc["updated_at"] if acc["updated_at"] else "",
+                "last_refresh_at": acc["last_refresh_at"]
+                if acc["last_refresh_at"]
+                else "",
+                "last_refresh_status": acc["last_refresh_status"],
+                "last_refresh_error": acc["last_refresh_error"],
+            }
+        )
 
-    return jsonify({
-        'success': True,
-        'accounts': safe_accounts,
-        'total': total,
-        'limit': limit,
-        'offset': offset
-    })
+    return jsonify(
+        {
+            "success": True,
+            "accounts": safe_accounts,
+            "total": total,
+            "limit": limit,
+            "offset": offset,
+        }
+    )
 
 
-@app.route('/api/accounts/refresh-resume/clear', methods=['POST'])
+@app.route("/api/accounts/refresh-resume/clear", methods=["POST"])
 @login_required
 def api_clear_refresh_resume_state():
     """清空刷新断点状态"""
@@ -1903,192 +2507,212 @@ def api_clear_refresh_resume_state():
     try:
         keys = ["refresh_resume_state_manual", "refresh_resume_state_scheduled"]
         placeholders = ",".join(["?"] * len(keys))
-        db.execute(
-            f"DELETE FROM settings WHERE key IN ({placeholders})",
-            tuple(keys)
-        )
+        db.execute(f"DELETE FROM settings WHERE key IN ({placeholders})", tuple(keys))
         db.commit()
-        return jsonify({'success': True, 'message': '已清空刷新断点状态'})
+        return jsonify({"success": True, "message": "已清空刷新断点状态"})
     except Exception:
-        return jsonify({'success': False, 'error': '清空失败'})
+        return jsonify({"success": False, "error": "清空失败"})
 
 
-@app.route('/api/accounts/refresh-resume/status', methods=['GET'])
+@app.route("/api/accounts/refresh-resume/status", methods=["GET"])
 @login_required
 def api_get_refresh_resume_status():
     """获取刷新断点状态详情"""
     db = get_db()
-    manual_state = _load_resume_state_any(db, 'manual')
-    scheduled_state = _load_resume_state_any(db, 'scheduled')
-    history_rates = _get_recent_refresh_rates(db, limit=5, refresh_types=['manual', 'scheduled'])
-    return jsonify({
-        'success': True,
-        'manual': manual_state,
-        'scheduled': scheduled_state,
-        'history_rates': history_rates
-    })
+    manual_state = _load_resume_state_any(db, "manual")
+    scheduled_state = _load_resume_state_any(db, "scheduled")
+    history_rates = _get_recent_refresh_rates(
+        db, limit=5, refresh_types=["manual", "scheduled"]
+    )
+    return jsonify(
+        {
+            "success": True,
+            "manual": manual_state,
+            "scheduled": scheduled_state,
+            "history_rates": history_rates,
+        }
+    )
 
 
-@app.route('/api/accounts/<int:account_id>', methods=['GET'])
+@app.route("/api/accounts/<int:account_id>", methods=["GET"])
 @login_required
 def api_get_account(account_id):
     """获取单个账号详情"""
     account = get_account_by_id(account_id)
     if not account:
-        return jsonify({'success': False, 'error': '账号不存在'})
-    
-    return jsonify({
-        'success': True,
-        'account': {
-            'id': account['id'],
-            'email': account['email'],
-            'password': account['password'],
-            'client_id': account['client_id'],
-            'refresh_token': account['refresh_token'],
-            'remark': account.get('remark', ''),
-            'status': account.get('status', 'active'),
-            'created_at': account.get('created_at', ''),
-            'updated_at': account.get('updated_at', '')
+        return jsonify({"success": False, "error": "账号不存在"})
+
+    return jsonify(
+        {
+            "success": True,
+            "account": {
+                "id": account["id"],
+                "email": account["email"],
+                "password": account["password"],
+                "client_id": account["client_id"],
+                "refresh_token": account["refresh_token"],
+                "remark": account.get("remark", ""),
+                "status": account.get("status", "active"),
+                "created_at": account.get("created_at", ""),
+                "updated_at": account.get("updated_at", ""),
+            },
         }
-    })
+    )
 
 
-@app.route('/api/accounts', methods=['POST'])
+@app.route("/api/accounts", methods=["POST"])
 @login_required
 def api_add_account():
     """添加账号"""
     data = request.json
-    account_str = data.get('account_string', '')
-    
+    account_str = data.get("account_string", "")
+
     if not account_str:
-        return jsonify({'success': False, 'error': '请输入账号信息'})
-    
+        return jsonify({"success": False, "error": "请输入账号信息"})
+
     # 支持批量导入（多行）
-    lines = account_str.strip().split('\n')
+    lines = account_str.strip().split("\n")
     added = 0
     skipped = 0
     invalid = 0
-    
+
     for line in lines:
         line = line.strip()
         if not line:
             continue
-        
+
         parsed = parse_account_string(line)
         if not parsed:
             invalid += 1
             continue
 
-        if add_account(parsed['email'], parsed['password'],
-                       parsed['client_id'], parsed['refresh_token']):
+        if add_account(
+            parsed["email"],
+            parsed["password"],
+            parsed["client_id"],
+            parsed["refresh_token"],
+        ):
             added += 1
         else:
             skipped += 1
-    
+
     if added > 0:
         details = []
         if skipped > 0:
-            details.append(f'已存在 {skipped} 个')
+            details.append(f"已存在 {skipped} 个")
         if invalid > 0:
-            details.append(f'格式错误 {invalid} 个')
-        suffix = f'（{", ".join(details)}）' if details else ''
-        return jsonify({
-            'success': True,
-            'message': f'成功添加 {added} 个账号{suffix}',
-            'added': added,
-            'skipped': skipped,
-            'invalid': invalid
-        })
+            details.append(f"格式错误 {invalid} 个")
+        suffix = f"（{', '.join(details)}）" if details else ""
+        return jsonify(
+            {
+                "success": True,
+                "message": f"成功添加 {added} 个账号{suffix}",
+                "added": added,
+                "skipped": skipped,
+                "invalid": invalid,
+            }
+        )
 
     if skipped > 0:
-        details = f'，格式错误 {invalid} 个' if invalid > 0 else ''
-        return jsonify({
-            'success': True,
-            'message': f'已存在 {skipped} 个账号，已跳过{details}',
-            'added': added,
-            'skipped': skipped,
-            'invalid': invalid
-        })
+        details = f"，格式错误 {invalid} 个" if invalid > 0 else ""
+        return jsonify(
+            {
+                "success": True,
+                "message": f"已存在 {skipped} 个账号，已跳过{details}",
+                "added": added,
+                "skipped": skipped,
+                "invalid": invalid,
+            }
+        )
 
-    return jsonify({
-        'success': False,
-        'error': '没有有效账号被添加（可能格式错误）',
-        'added': added,
-        'skipped': skipped,
-        'invalid': invalid
-    })
+    return jsonify(
+        {
+            "success": False,
+            "error": "没有有效账号被添加（可能格式错误）",
+            "added": added,
+            "skipped": skipped,
+            "invalid": invalid,
+        }
+    )
 
 
-@app.route('/api/accounts/<int:account_id>', methods=['PUT'])
+@app.route("/api/accounts/<int:account_id>", methods=["PUT"])
 @login_required
 def api_update_account(account_id):
     """更新账号"""
     data = request.json
 
     # 检查是否只更新状态
-    if 'status' in data and len(data) == 1:
+    if "status" in data and len(data) == 1:
         # 只更新状态
-        return api_update_account_status(account_id, data['status'])
+        return api_update_account_status(account_id, data["status"])
 
-    email_addr = data.get('email', '')
-    password = data.get('password', '')
-    client_id = data.get('client_id', '')
-    refresh_token = data.get('refresh_token', '')
-    remark = sanitize_input(data.get('remark', ''), max_length=200)
-    status = data.get('status', 'active')
+    email_addr = data.get("email", "")
+    password = data.get("password", "")
+    client_id = data.get("client_id", "")
+    refresh_token = data.get("refresh_token", "")
+    remark = sanitize_input(data.get("remark", ""), max_length=200)
+    status = data.get("status", "active")
 
     if not email_addr or not client_id or not refresh_token:
-        return jsonify({'success': False, 'error': '邮箱、Client ID 和 Refresh Token 不能为空'})
+        return jsonify(
+            {"success": False, "error": "邮箱、Client ID 和 Refresh Token 不能为空"}
+        )
 
-    if update_account(account_id, email_addr, password, client_id, refresh_token, remark, status):
-        return jsonify({'success': True, 'message': '账号更新成功'})
+    if update_account(
+        account_id, email_addr, password, client_id, refresh_token, remark, status
+    ):
+        return jsonify({"success": True, "message": "账号更新成功"})
     else:
-        return jsonify({'success': False, 'error': '更新失败'})
+        return jsonify({"success": False, "error": "更新失败"})
 
 
 def api_update_account_status(account_id: int, status: str):
     """只更新账号状态"""
     db = get_db()
     try:
-        db.execute('''
+        db.execute(
+            """
             UPDATE accounts
             SET status = ?, updated_at = CURRENT_TIMESTAMP
             WHERE id = ?
-        ''', (status, account_id))
+        """,
+            (status, account_id),
+        )
         db.commit()
-        return jsonify({'success': True, 'message': '状态更新成功'})
+        return jsonify({"success": True, "message": "状态更新成功"})
     except Exception:
-        return jsonify({'success': False, 'error': '更新失败'})
+        return jsonify({"success": False, "error": "更新失败"})
 
 
-@app.route('/api/accounts/<int:account_id>', methods=['DELETE'])
+@app.route("/api/accounts/<int:account_id>", methods=["DELETE"])
 @login_required
 def api_delete_account(account_id):
     """删除账号"""
     if delete_account_by_id(account_id):
-        return jsonify({'success': True})
+        return jsonify({"success": True})
     else:
-        return jsonify({'success': False, 'error': '删除失败'})
+        return jsonify({"success": False, "error": "删除失败"})
 
 
-@app.route('/api/accounts/email/<email_addr>', methods=['DELETE'])
+@app.route("/api/accounts/email/<email_addr>", methods=["DELETE"])
 @login_required
 def api_delete_account_by_email(email_addr):
     """根据邮箱地址删除账号"""
     if delete_account_by_email(email_addr):
-        return jsonify({'success': True})
+        return jsonify({"success": True})
     else:
-        return jsonify({'success': False, 'error': '删除失败'})
+        return jsonify({"success": False, "error": "删除失败"})
 
 
-@app.route('/api/accounts/batch-delete', methods=['POST'])
+@app.route("/api/accounts/batch-delete", methods=["POST"])
 @login_required
 def api_batch_delete_accounts():
     """批量删除账号"""
     data = request.json or {}
-    account_ids = data.get('account_ids', [])
+    account_ids = data.get("account_ids", [])
     if not account_ids or not isinstance(account_ids, list):
-        return jsonify({'success': False, 'error': '参数不完整'})
+        return jsonify({"success": False, "error": "参数不完整"})
 
     # 去重 + 过滤非法值
     clean_ids = []
@@ -2102,38 +2726,57 @@ def api_batch_delete_accounts():
     clean_ids = list(set(clean_ids))
 
     if not clean_ids:
-        return jsonify({'success': False, 'error': '参数不完整'})
+        return jsonify({"success": False, "error": "参数不完整"})
 
     db = get_db()
     try:
         placeholders = ",".join(["?"] * len(clean_ids))
-        db.execute(f'DELETE FROM account_leases WHERE account_id IN ({placeholders})', clean_ids)
-        db.execute(f'DELETE FROM account_refresh_logs WHERE account_id IN ({placeholders})', clean_ids)
-        db.execute(f'DELETE FROM accounts WHERE id IN ({placeholders})', clean_ids)
+        db.execute(
+            f"DELETE FROM account_leases WHERE account_id IN ({placeholders})",
+            clean_ids,
+        )
+        db.execute(
+            f"DELETE FROM account_refresh_logs WHERE account_id IN ({placeholders})",
+            clean_ids,
+        )
+        db.execute(f"DELETE FROM accounts WHERE id IN ({placeholders})", clean_ids)
         db.commit()
-        return jsonify({'success': True, 'deleted': len(clean_ids)})
+        return jsonify({"success": True, "deleted": len(clean_ids)})
     except Exception:
-        return jsonify({'success': False, 'error': '删除失败'})
+        return jsonify({"success": False, "error": "删除失败"})
 
 
 # ==================== 账号刷新 API ====================
 
-def log_refresh_result(account_id: int, account_email: str, refresh_type: str, status: str, error_message: str = None):
+
+def log_refresh_result(
+    account_id: int,
+    account_email: str,
+    refresh_type: str,
+    status: str,
+    error_message: str = None,
+):
     """记录刷新结果到数据库"""
     db = get_db()
     try:
-        db.execute('''
+        db.execute(
+            """
             INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
             VALUES (?, ?, ?, ?, ?)
-        ''', (account_id, account_email, refresh_type, status, error_message))
+        """,
+            (account_id, account_email, refresh_type, status, error_message),
+        )
 
         # 更新账号的最后刷新时间
-        if status == 'success':
-            db.execute('''
+        if status == "success":
+            db.execute(
+                """
                 UPDATE accounts
                 SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
-            ''', (account_id,))
+            """,
+                (account_id,),
+            )
 
         db.commit()
         return True
@@ -2148,11 +2791,13 @@ def _compute_backoff_delay(attempt: int, retry_after: Optional[str] = None) -> f
             return max(0.5, min(REFRESH_BACKOFF_MAX, float(retry_after)))
         except Exception:
             pass
-    base = min(REFRESH_BACKOFF_MAX, REFRESH_BACKOFF_BASE * (2 ** attempt))
+    base = min(REFRESH_BACKOFF_MAX, REFRESH_BACKOFF_BASE * (2**attempt))
     return base + random.uniform(0, 0.3)
 
 
-def post_with_backoff(url: str, data: Dict[str, Any], timeout: int = 30) -> requests.Response:
+def post_with_backoff(
+    url: str, data: Dict[str, Any], timeout: int = 30
+) -> requests.Response:
     """带退避重试的 POST 请求（用于刷新任务）"""
     retry_status = {429, 500, 502, 503, 504}
     last_exc = None
@@ -2167,7 +2812,7 @@ def post_with_backoff(url: str, data: Dict[str, Any], timeout: int = 30) -> requ
             continue
 
         if response.status_code in retry_status and attempt < REFRESH_BACKOFF_RETRIES:
-            retry_after = response.headers.get('Retry-After')
+            retry_after = response.headers.get("Retry-After")
             time.sleep(_compute_backoff_delay(attempt, retry_after))
             continue
 
@@ -2178,37 +2823,44 @@ def post_with_backoff(url: str, data: Dict[str, Any], timeout: int = 30) -> requ
     return response
 
 
-def _get_setting_conn(conn: sqlite3.Connection, key: str, default: str = '') -> str:
-    cursor = conn.execute('SELECT value FROM settings WHERE key = ?', (key,))
+def _get_setting_conn(conn: sqlite3.Connection, key: str, default: str = "") -> str:
+    cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (key,))
     row = cursor.fetchone()
     return row[0] if row else default
 
 
 def _set_setting_conn(conn: sqlite3.Connection, key: str, value: str) -> None:
-    conn.execute('''
+    conn.execute(
+        """
         INSERT OR REPLACE INTO settings (key, value, updated_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
-    ''', (key, value))
+    """,
+        (key, value),
+    )
 
 
 def _get_setting_int_conn(conn: sqlite3.Connection, key: str, default: int) -> int:
-    raw = _get_setting_conn(conn, key, '')
+    raw = _get_setting_conn(conn, key, "")
     try:
         return int(raw)
     except Exception:
         return default
 
 
-def _resolve_refresh_config(conn: sqlite3.Connection, total: int, mode: str = 'default') -> Dict[str, int]:
-    delay_seconds = _get_setting_int_conn(conn, 'refresh_delay_seconds', 5)
-    max_workers = _get_setting_int_conn(conn, 'refresh_max_workers', REFRESH_MAX_WORKERS)
-    batch_size = _get_setting_int_conn(conn, 'refresh_batch_size', REFRESH_BATCH_SIZE)
+def _resolve_refresh_config(
+    conn: sqlite3.Connection, total: int, mode: str = "default"
+) -> Dict[str, int]:
+    delay_seconds = _get_setting_int_conn(conn, "refresh_delay_seconds", 5)
+    max_workers = _get_setting_int_conn(
+        conn, "refresh_max_workers", REFRESH_MAX_WORKERS
+    )
+    batch_size = _get_setting_int_conn(conn, "refresh_batch_size", REFRESH_BATCH_SIZE)
 
     delay_seconds = max(0, min(delay_seconds, 60))
     max_workers = max(1, min(max_workers, 20))
     batch_size = max(1, min(batch_size, 100))
 
-    if mode == 'full':
+    if mode == "full":
         # 全量刷新：保守策略，降低并发，保证稳定完成
         max_workers = min(max_workers, 6)
         batch_size = min(batch_size, 30)
@@ -2237,9 +2889,9 @@ def _resolve_refresh_config(conn: sqlite3.Connection, total: int, mode: str = 'd
             batch_size = max_workers
 
     return {
-        'delay_seconds': delay_seconds,
-        'max_workers': max_workers,
-        'batch_size': batch_size
+        "delay_seconds": delay_seconds,
+        "max_workers": max_workers,
+        "batch_size": batch_size,
     }
 
 
@@ -2247,97 +2899,106 @@ def _resume_state_key(resume_key: str) -> str:
     return f"refresh_resume_state_{resume_key}"
 
 
-def _get_resume_state(conn: sqlite3.Connection, resume_key: str) -> Optional[Dict[str, Any]]:
+def _get_resume_state(
+    conn: sqlite3.Connection, resume_key: str
+) -> Optional[Dict[str, Any]]:
     key = _resume_state_key(resume_key)
-    raw = _get_setting_conn(conn, key, '')
+    raw = _get_setting_conn(conn, key, "")
     if not raw:
         return None
     try:
         state = json.loads(raw)
     except Exception:
         return None
-    if state.get('status') != 'running':
+    if state.get("status") != "running":
         return None
-    updated_at = state.get('updated_at')
+    updated_at = state.get("updated_at")
     if updated_at:
         try:
             updated_time = datetime.fromisoformat(updated_at)
-            if (datetime.now() - updated_time).total_seconds() > REFRESH_RESUME_TTL_SECONDS:
+            if (
+                datetime.now() - updated_time
+            ).total_seconds() > REFRESH_RESUME_TTL_SECONDS:
                 return None
         except Exception:
             return None
     return state
 
 
-def _load_resume_state_any(conn: sqlite3.Connection, resume_key: str) -> Optional[Dict[str, Any]]:
+def _load_resume_state_any(
+    conn: sqlite3.Connection, resume_key: str
+) -> Optional[Dict[str, Any]]:
     key = _resume_state_key(resume_key)
-    raw = _get_setting_conn(conn, key, '')
+    raw = _get_setting_conn(conn, key, "")
     if not raw:
         return None
     try:
         state = json.loads(raw)
     except Exception:
         return None
-    total = state.get('total')
-    processed = state.get('processed')
+    total = state.get("total")
+    processed = state.get("processed")
     remaining = None
     if isinstance(total, int) and isinstance(processed, int):
         remaining = max(0, total - processed)
-    updated_at = state.get('updated_at')
+    updated_at = state.get("updated_at")
     stale = False
     if updated_at:
         try:
             updated_time = datetime.fromisoformat(updated_at)
-            stale = (datetime.now() - updated_time).total_seconds() > REFRESH_RESUME_TTL_SECONDS
+            stale = (
+                datetime.now() - updated_time
+            ).total_seconds() > REFRESH_RESUME_TTL_SECONDS
         except Exception:
             stale = False
     return {
-        'status': state.get('status'),
-        'started_at': state.get('started_at'),
-        'updated_at': updated_at,
-        'finished_at': state.get('finished_at'),
-        'last_id': state.get('last_id'),
-        'total': total,
-        'processed': processed,
-        'remaining': remaining,
-        'stale': stale,
-        'duration_seconds': state.get('duration_seconds'),
-        'avg_rate': state.get('avg_rate')
+        "status": state.get("status"),
+        "started_at": state.get("started_at"),
+        "updated_at": updated_at,
+        "finished_at": state.get("finished_at"),
+        "last_id": state.get("last_id"),
+        "total": total,
+        "processed": processed,
+        "remaining": remaining,
+        "stale": stale,
+        "duration_seconds": state.get("duration_seconds"),
+        "avg_rate": state.get("avg_rate"),
     }
 
 
 def _get_recent_refresh_rates(
-    conn: sqlite3.Connection,
-    limit: int = 3,
-    refresh_types: Optional[List[str]] = None
+    conn: sqlite3.Connection, limit: int = 3, refresh_types: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """获取最近 N 次刷新均速统计（基于刷新运行记录）"""
-    where_sql = ''
+    where_sql = ""
     params: List[Any] = []
     if refresh_types:
         placeholders = ",".join(["?"] * len(refresh_types))
         where_sql = f"WHERE refresh_type IN ({placeholders})"
         params.extend(refresh_types)
     params.append(limit)
-    runs = conn.execute(f'''
+    runs = conn.execute(
+        f"""
         SELECT run_id, refresh_type, started_at, finished_at, total, success_count, failed_count
         FROM refresh_runs
         {where_sql}
         ORDER BY started_at DESC
         LIMIT ?
-    ''', params).fetchall()
+    """,
+        params,
+    ).fetchall()
     results = []
     for row in runs:
-        run_time = row['started_at']
-        total = row['total'] or 0
+        run_time = row["started_at"]
+        total = row["total"] or 0
         if not run_time or total == 0:
             continue
 
         duration_seconds = None
-        if row['started_at'] and row['finished_at']:
+        if row["started_at"] and row["finished_at"]:
             try:
-                start = datetime.fromisoformat(row['started_at'])
-                end = datetime.fromisoformat(row['finished_at'])
+                start = datetime.fromisoformat(row["started_at"])
+                end = datetime.fromisoformat(row["finished_at"])
                 duration_seconds = max(1, int((end - start).total_seconds()))
             except Exception:
                 duration_seconds = None
@@ -2346,39 +3007,47 @@ def _get_recent_refresh_rates(
         if duration_seconds:
             avg_rate = total / duration_seconds
 
-        results.append({
-            'run_id': row['run_id'],
-            'run_time': run_time,
-            'refresh_type': row['refresh_type'],
-            'total': total,
-            'success_count': row['success_count'] or 0,
-            'failed_count': row['failed_count'] or 0,
-            'duration_seconds': duration_seconds,
-            'avg_rate': avg_rate
-        })
+        results.append(
+            {
+                "run_id": row["run_id"],
+                "run_time": run_time,
+                "refresh_type": row["refresh_type"],
+                "total": total,
+                "success_count": row["success_count"] or 0,
+                "failed_count": row["failed_count"] or 0,
+                "duration_seconds": duration_seconds,
+                "avg_rate": avg_rate,
+            }
+        )
 
     return results
 
 
-def _save_resume_state(conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]) -> None:
+def _save_resume_state(
+    conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]
+) -> None:
     key = _resume_state_key(resume_key)
-    state['updated_at'] = datetime.now().isoformat()
+    state["updated_at"] = datetime.now().isoformat()
     _set_setting_conn(conn, key, json.dumps(state, ensure_ascii=True))
 
 
-def _complete_resume_state(conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]) -> None:
-    state['status'] = 'completed'
-    state['finished_at'] = datetime.now().isoformat()
+def _complete_resume_state(
+    conn: sqlite3.Connection, resume_key: str, state: Dict[str, Any]
+) -> None:
+    state["status"] = "completed"
+    state["finished_at"] = datetime.now().isoformat()
     try:
-        started_at = state.get('started_at')
-        processed = state.get('processed')
+        started_at = state.get("started_at")
+        processed = state.get("processed")
         if started_at:
             started_time = datetime.fromisoformat(started_at)
-            finished_time = datetime.fromisoformat(state['finished_at'])
-            duration_seconds = max(1, int((finished_time - started_time).total_seconds()))
-            state['duration_seconds'] = duration_seconds
+            finished_time = datetime.fromisoformat(state["finished_at"])
+            duration_seconds = max(
+                1, int((finished_time - started_time).total_seconds())
+            )
+            state["duration_seconds"] = duration_seconds
             if isinstance(processed, int) and processed > 0:
-                state['avg_rate'] = processed / duration_seconds
+                state["avg_rate"] = processed / duration_seconds
     except Exception:
         pass
     _save_resume_state(conn, resume_key, state)
@@ -2389,38 +3058,42 @@ def _is_throttle_error(error_msg: Optional[str]) -> bool:
         return False
     text = str(error_msg).lower()
     keywords = [
-        'too many requests',
-        'temporarily_unavailable',
-        'throttle',
-        'rate limit',
-        '429',
-        'retry-after'
+        "too many requests",
+        "temporarily_unavailable",
+        "throttle",
+        "rate limit",
+        "429",
+        "retry-after",
     ]
     return any(keyword in text for keyword in keywords)
 
 
 def _refresh_account_worker(account: sqlite3.Row) -> Dict[str, Any]:
-    account_id = account['id']
-    account_email = account['email']
-    client_id = account['client_id']
-    encrypted_refresh_token = account['refresh_token']
+    account_id = account["id"]
+    account_email = account["email"]
+    client_id = account["client_id"]
+    encrypted_refresh_token = account["refresh_token"]
 
     try:
-        refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
+        refresh_token = (
+            decrypt_data(encrypted_refresh_token)
+            if encrypted_refresh_token
+            else encrypted_refresh_token
+        )
     except Exception as exc:
         return {
-            'id': account_id,
-            'email': account_email,
-            'success': False,
-            'error': f"解密 token 失败: {str(exc)}"
+            "id": account_id,
+            "email": account_email,
+            "success": False,
+            "error": f"解密 token 失败: {str(exc)}",
         }
 
     success, error_msg = test_refresh_token(client_id, refresh_token)
     return {
-        'id': account_id,
-        'email': account_email,
-        'success': success,
-        'error': error_msg
+        "id": account_id,
+        "email": account_email,
+        "success": success,
+        "error": error_msg,
     }
 
 
@@ -2435,60 +3108,67 @@ def _refresh_accounts_generator(
     group_id: Optional[int] = None,
     group_name: Optional[str] = None,
     resume_key: Optional[str] = None,
-    scope_label: Optional[str] = None
+    scope_label: Optional[str] = None,
 ) -> Any:
     """刷新账号，支持并发、退避和断点续跑（生成事件）"""
     resume_key = resume_key or refresh_type
     scope_label = scope_label or refresh_type
-    max_workers = max_workers if max_workers is not None else max(1, min(REFRESH_MAX_WORKERS, 20))
-    batch_size = batch_size if batch_size is not None else max(1, min(REFRESH_BATCH_SIZE, 100))
+    max_workers = (
+        max_workers if max_workers is not None else max(1, min(REFRESH_MAX_WORKERS, 20))
+    )
+    batch_size = (
+        batch_size if batch_size is not None else max(1, min(REFRESH_BATCH_SIZE, 100))
+    )
 
     total_all = len(accounts)
     resumed = False
     resume_state = _get_resume_state(conn, resume_key) if resume else None
     start_from_id = None
 
-    if resume_state and resume_state.get('last_id'):
-        start_from_id = int(resume_state['last_id'])
+    if resume_state and resume_state.get("last_id"):
+        start_from_id = int(resume_state["last_id"])
         resumed = True
 
     if start_from_id:
-        accounts = [acc for acc in accounts if acc['id'] > start_from_id]
+        accounts = [acc for acc in accounts if acc["id"] > start_from_id]
 
     total = len(accounts)
     now_iso = datetime.now().isoformat()
     state = {
-        'status': 'running',
-        'started_at': resume_state.get('started_at') if resume_state else now_iso,
-        'last_id': start_from_id or 0,
-        'total': total_all,
-        'processed': total_all - total,
-        'group_id': group_id
+        "status": "running",
+        "started_at": resume_state.get("started_at") if resume_state else now_iso,
+        "last_id": start_from_id or 0,
+        "total": total_all,
+        "processed": total_all - total,
+        "group_id": group_id,
     }
     _save_resume_state(conn, resume_key, state)
 
     skipped_count = total_all - total
     run_id = uuid.uuid4().hex
-    conn.execute('''
+    conn.execute(
+        """
         INSERT INTO refresh_runs (
             run_id, refresh_type, started_at, total, total_all,
             resumed, skipped, group_id, max_workers, batch_size, delay_seconds, status
         )
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    ''', (
-        run_id,
-        refresh_type,
-        now_iso,
-        total,
-        total_all,
-        1 if resumed else 0,
-        skipped_count,
-        group_id,
-        max_workers,
-        batch_size,
-        delay_seconds,
-        'running'
-    ))
+    """,
+        (
+            run_id,
+            refresh_type,
+            now_iso,
+            total,
+            total_all,
+            1 if resumed else 0,
+            skipped_count,
+            group_id,
+            max_workers,
+            batch_size,
+            delay_seconds,
+            "running",
+        ),
+    )
     conn.commit()
 
     success_count = 0
@@ -2499,49 +3179,54 @@ def _refresh_accounts_generator(
     current_delay = delay_seconds
 
     yield {
-        'type': 'start',
-        'total': total,
-        'total_all': total_all,
-        'delay_seconds': delay_seconds,
-        'max_workers': max_workers,
-        'batch_size': batch_size,
-        'refresh_type': refresh_type,
-        'resumed': resumed,
-        'skipped': skipped_count,
-        'run_id': run_id,
-        'scope': scope_label,
-        'group_id': group_id,
-        'group_name': group_name
+        "type": "start",
+        "total": total,
+        "total_all": total_all,
+        "delay_seconds": delay_seconds,
+        "max_workers": max_workers,
+        "batch_size": batch_size,
+        "refresh_type": refresh_type,
+        "resumed": resumed,
+        "skipped": skipped_count,
+        "run_id": run_id,
+        "scope": scope_label,
+        "group_id": group_id,
+        "group_name": group_name,
     }
 
     if total == 0:
-        conn.execute('''
+        conn.execute(
+            """
             UPDATE refresh_runs
             SET finished_at = CURRENT_TIMESTAMP,
                 success_count = 0,
                 failed_count = 0,
                 status = 'completed'
             WHERE run_id = ?
-        ''', (run_id,))
+        """,
+            (run_id,),
+        )
         conn.commit()
         _complete_resume_state(conn, resume_key, state)
         yield {
-            'type': 'complete',
-            'total': total,
-            'success_count': 0,
-            'failed_count': 0,
-            'failed_list': [],
-            'run_id': run_id,
-            'duration_seconds': 0,
-            'avg_rate': None
+            "type": "complete",
+            "total": total,
+            "success_count": 0,
+            "failed_count": 0,
+            "failed_list": [],
+            "run_id": run_id,
+            "duration_seconds": 0,
+            "avg_rate": None,
         }
         return
 
     executor = ThreadPoolExecutor(max_workers=max_workers)
     try:
         for batch_start in range(0, total, batch_size):
-            batch = accounts[batch_start:batch_start + batch_size]
-            future_map = {executor.submit(_refresh_account_worker, acc): acc for acc in batch}
+            batch = accounts[batch_start : batch_start + batch_size]
+            future_map = {
+                executor.submit(_refresh_account_worker, acc): acc for acc in batch
+            }
             throttle_hits = 0
             for future in as_completed(future_map):
                 acc = future_map[future]
@@ -2549,39 +3234,47 @@ def _refresh_accounts_generator(
                     result = future.result()
                 except Exception as exc:
                     result = {
-                        'id': acc['id'],
-                        'email': acc['email'],
-                        'success': False,
-                        'error': f"刷新异常: {str(exc)}"
+                        "id": acc["id"],
+                        "email": acc["email"],
+                        "success": False,
+                        "error": f"刷新异常: {str(exc)}",
                     }
 
                 # 写入刷新日志
-                conn.execute('''
+                conn.execute(
+                    """
                     INSERT INTO account_refresh_logs (account_id, account_email, refresh_type, status, error_message)
                     VALUES (?, ?, ?, ?, ?)
-                ''', (
-                    result['id'],
-                    result['email'],
-                    refresh_type,
-                    'success' if result['success'] else 'failed',
-                    result['error']
-                ))
+                """,
+                    (
+                        result["id"],
+                        result["email"],
+                        refresh_type,
+                        "success" if result["success"] else "failed",
+                        result["error"],
+                    ),
+                )
 
-                if result['success']:
-                    conn.execute('''
+                if result["success"]:
+                    conn.execute(
+                        """
                         UPDATE accounts
                         SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
                         WHERE id = ?
-                    ''', (result['id'],))
+                    """,
+                        (result["id"],),
+                    )
                     success_count += 1
                 else:
                     failed_count += 1
-                    failed_list.append({
-                        'id': result['id'],
-                        'email': result['email'],
-                        'error': result['error']
-                    })
-                    if _is_throttle_error(result.get('error')):
+                    failed_list.append(
+                        {
+                            "id": result["id"],
+                            "email": result["email"],
+                            "error": result["error"],
+                        }
+                    )
+                    if _is_throttle_error(result.get("error")):
                         throttle_hits += 1
 
                 processed += 1
@@ -2589,63 +3282,71 @@ def _refresh_accounts_generator(
                 rate_per_min = (processed / elapsed) * 60
                 eta_seconds = None
                 if processed > 0 and processed < total:
-                    eta_seconds = int(((total - processed) / (processed / elapsed)) or 0)
+                    eta_seconds = int(
+                        ((total - processed) / (processed / elapsed)) or 0
+                    )
 
                 yield {
-                    'type': 'progress',
-                    'email': result['email'],
-                    'current': processed,
-                    'total': total,
-                    'success_count': success_count,
-                    'failed_count': failed_count,
-                    'rate_per_min': rate_per_min,
-                    'eta_seconds': eta_seconds,
-                    'elapsed_seconds': int(elapsed),
-                    'run_id': run_id
+                    "type": "progress",
+                    "email": result["email"],
+                    "current": processed,
+                    "total": total,
+                    "success_count": success_count,
+                    "failed_count": failed_count,
+                    "rate_per_min": rate_per_min,
+                    "eta_seconds": eta_seconds,
+                    "elapsed_seconds": int(elapsed),
+                    "run_id": run_id,
                 }
 
             # 批次提交 + 断点记录
-            last_id = batch[-1]['id']
-            state['last_id'] = last_id
-            state['processed'] = total_all - (total - (batch_start + len(batch)))
+            last_id = batch[-1]["id"]
+            state["last_id"] = last_id
+            state["processed"] = total_all - (total - (batch_start + len(batch)))
             _save_resume_state(conn, resume_key, state)
             conn.commit()
 
             if throttle_hits > 0:
                 current_delay = min(
-                    REFRESH_BACKOFF_MAX,
-                    max(current_delay, 1) + min(3, throttle_hits)
+                    REFRESH_BACKOFF_MAX, max(current_delay, 1) + min(3, throttle_hits)
                 )
             elif current_delay > delay_seconds:
                 current_delay = max(delay_seconds, current_delay - 1)
 
             if current_delay > 0 and (batch_start + batch_size) < total:
-                yield {'type': 'delay', 'seconds': current_delay, 'run_id': run_id}
+                yield {"type": "delay", "seconds": current_delay, "run_id": run_id}
                 time.sleep(current_delay)
     finally:
         executor.shutdown(wait=True)
 
     _complete_resume_state(conn, resume_key, state)
     duration_seconds = max(1, int(time.time() - run_started_ts))
-    avg_rate = (success_count + failed_count) / duration_seconds if duration_seconds > 0 else None
-    conn.execute('''
+    avg_rate = (
+        (success_count + failed_count) / duration_seconds
+        if duration_seconds > 0
+        else None
+    )
+    conn.execute(
+        """
         UPDATE refresh_runs
         SET finished_at = CURRENT_TIMESTAMP,
             success_count = ?,
             failed_count = ?,
             status = 'completed'
         WHERE run_id = ?
-    ''', (success_count, failed_count, run_id))
+    """,
+        (success_count, failed_count, run_id),
+    )
     conn.commit()
     yield {
-        'type': 'complete',
-        'total': total,
-        'success_count': success_count,
-        'failed_count': failed_count,
-        'failed_list': failed_list,
-        'run_id': run_id,
-        'duration_seconds': duration_seconds,
-        'avg_rate': avg_rate
+        "type": "complete",
+        "total": total,
+        "success_count": success_count,
+        "failed_count": failed_count,
+        "failed_list": failed_list,
+        "run_id": run_id,
+        "duration_seconds": duration_seconds,
+        "avg_rate": avg_rate,
     }
 
 
@@ -2660,27 +3361,32 @@ def test_refresh_token(client_id: str, refresh_token: str) -> tuple[bool, str]:
                 "client_id": client_id,
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
-                "scope": "https://graph.microsoft.com/.default"
+                "scope": "https://graph.microsoft.com/.default",
             },
-            timeout=30
+            timeout=30,
         )
 
         if res.status_code == 200:
             return True, None
         else:
             error_data = res.json()
-            error_msg = error_data.get('error_description', error_data.get('error', '未知错误'))
+            error_msg = error_data.get(
+                "error_description", error_data.get("error", "未知错误")
+            )
             return False, error_msg
     except Exception as e:
         return False, f"请求异常: {str(e)}"
 
 
-@app.route('/api/accounts/<int:account_id>/refresh', methods=['POST'])
+@app.route("/api/accounts/<int:account_id>/refresh", methods=["POST"])
 @login_required
 def api_refresh_account(account_id):
     """刷新单个账号的 token"""
     db = get_db()
-    cursor = db.execute('SELECT id, email, client_id, refresh_token FROM accounts WHERE id = ?', (account_id,))
+    cursor = db.execute(
+        "SELECT id, email, client_id, refresh_token FROM accounts WHERE id = ?",
+        (account_id,),
+    )
     account = cursor.fetchone()
 
     if not account:
@@ -2689,57 +3395,63 @@ def api_refresh_account(account_id):
             "账号不存在",
             "NotFoundError",
             404,
-            f"account_id={account_id}"
+            f"account_id={account_id}",
         )
-        return jsonify({'success': False, 'error': error_payload})
+        return jsonify({"success": False, "error": error_payload})
 
-    account_id = account['id']
-    account_email = account['email']
-    client_id = account['client_id']
-    encrypted_refresh_token = account['refresh_token']
+    account_id = account["id"]
+    account_email = account["email"]
+    client_id = account["client_id"]
+    encrypted_refresh_token = account["refresh_token"]
 
     # 解密 refresh_token
     try:
-        refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
+        refresh_token = (
+            decrypt_data(encrypted_refresh_token)
+            if encrypted_refresh_token
+            else encrypted_refresh_token
+        )
     except Exception as e:
         error_msg = f"解密 token 失败: {str(e)}"
-        log_refresh_result(account_id, account_email, 'manual', 'failed', error_msg)
+        log_refresh_result(account_id, account_email, "manual", "failed", error_msg)
         error_payload = build_error_payload(
-            "TOKEN_DECRYPT_FAILED",
-            "Token 解密失败",
-            "DecryptionError",
-            500,
-            error_msg
+            "TOKEN_DECRYPT_FAILED", "Token 解密失败", "DecryptionError", 500, error_msg
         )
-        return jsonify({'success': False, 'error': error_payload})
+        return jsonify({"success": False, "error": error_payload})
 
     # 测试 refresh token
     success, error_msg = test_refresh_token(client_id, refresh_token)
 
     # 记录刷新结果
-    log_refresh_result(account_id, account_email, 'manual', 'success' if success else 'failed', error_msg)
+    log_refresh_result(
+        account_id,
+        account_email,
+        "manual",
+        "success" if success else "failed",
+        error_msg,
+    )
 
     if success:
-        return jsonify({'success': True, 'message': 'Token 刷新成功'})
+        return jsonify({"success": True, "message": "Token 刷新成功"})
 
     error_payload = build_error_payload(
         "TOKEN_REFRESH_FAILED",
         "Token 刷新失败",
         "RefreshTokenError",
         400,
-        error_msg or "未知错误"
+        error_msg or "未知错误",
     )
-    return jsonify({'success': False, 'error': error_payload})
+    return jsonify({"success": False, "error": error_payload})
 
 
-@app.route('/api/accounts/refresh-all', methods=['GET'])
+@app.route("/api/accounts/refresh-all", methods=["GET"])
 @login_required
 def api_refresh_all_accounts():
     """刷新所有账号的 token（流式响应，实时返回进度）"""
     import json
 
-    force = request.args.get('force', 'false').lower() == 'true'
-    resume = request.args.get('resume', 'true').lower() == 'true'
+    force = request.args.get("force", "false").lower() == "true"
+    resume = request.args.get("resume", "true").lower() == "true"
 
     def generate():
         # 在生成器内部直接创建数据库连接
@@ -2750,7 +3462,9 @@ def api_refresh_all_accounts():
         try:
             # 清理超过半年的刷新记录
             try:
-                conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
+                conn.execute(
+                    "DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')"
+                )
                 conn.commit()
             except Exception as e:
                 print(f"清理旧记录失败: {str(e)}")
@@ -2759,41 +3473,41 @@ def api_refresh_all_accounts():
                 "SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active' ORDER BY id"
             )
             accounts = cursor.fetchall()
-            config = _resolve_refresh_config(conn, len(accounts), mode='full')
+            config = _resolve_refresh_config(conn, len(accounts), mode="full")
 
             for event in _refresh_accounts_generator(
                 conn=conn,
                 accounts=accounts,
-                refresh_type='manual',
-                delay_seconds=config['delay_seconds'],
+                refresh_type="manual",
+                delay_seconds=config["delay_seconds"],
                 resume=resume,
-                max_workers=config['max_workers'],
-                batch_size=config['batch_size'],
-                scope_label='manual'
+                max_workers=config["max_workers"],
+                batch_size=config["batch_size"],
+                scope_label="manual",
             ):
                 yield f"data: {json.dumps(event)}\n\n"
 
         finally:
             conn.close()
 
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(generate(), mimetype="text/event-stream")
 
 
-@app.route('/api/accounts/<int:account_id>/retry-refresh', methods=['POST'])
+@app.route("/api/accounts/<int:account_id>/retry-refresh", methods=["POST"])
 @login_required
 def api_retry_refresh_account(account_id):
     """重试单个失败账号的刷新"""
     return api_refresh_account(account_id)
 
 
-@app.route('/api/accounts/refresh-failed', methods=['POST'])
+@app.route("/api/accounts/refresh-failed", methods=["POST"])
 @login_required
 def api_refresh_failed_accounts():
     """重试所有失败的账号"""
     db = get_db()
 
     # 获取最近一次刷新失败的账号列表
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT DISTINCT a.id, a.email, a.client_id, a.refresh_token
         FROM accounts a
         INNER JOIN (
@@ -2803,7 +3517,7 @@ def api_refresh_failed_accounts():
         ) latest ON a.id = latest.account_id
         INNER JOIN account_refresh_logs l ON a.id = l.account_id AND l.created_at = latest.last_refresh
         WHERE l.status = 'failed' AND a.status = 'active'
-    ''')
+    """)
     accounts = cursor.fetchall()
 
     success_count = 0
@@ -2811,85 +3525,95 @@ def api_refresh_failed_accounts():
     failed_list = []
 
     for account in accounts:
-        account_id = account['id']
-        account_email = account['email']
-        client_id = account['client_id']
-        encrypted_refresh_token = account['refresh_token']
+        account_id = account["id"]
+        account_email = account["email"]
+        client_id = account["client_id"]
+        encrypted_refresh_token = account["refresh_token"]
 
         # 解密 refresh_token
         try:
-            refresh_token = decrypt_data(encrypted_refresh_token) if encrypted_refresh_token else encrypted_refresh_token
+            refresh_token = (
+                decrypt_data(encrypted_refresh_token)
+                if encrypted_refresh_token
+                else encrypted_refresh_token
+            )
         except Exception as e:
             # 解密失败，记录错误
             failed_count += 1
             error_msg = f"解密 token 失败: {str(e)}"
-            failed_list.append({
-                'id': account_id,
-                'email': account_email,
-                'error': error_msg
-            })
-            log_refresh_result(account_id, account_email, 'retry', 'failed', error_msg)
+            failed_list.append(
+                {"id": account_id, "email": account_email, "error": error_msg}
+            )
+            log_refresh_result(account_id, account_email, "retry", "failed", error_msg)
             continue
 
         # 测试 refresh token
         success, error_msg = test_refresh_token(client_id, refresh_token)
 
         # 记录刷新结果
-        log_refresh_result(account_id, account_email, 'retry', 'success' if success else 'failed', error_msg)
+        log_refresh_result(
+            account_id,
+            account_email,
+            "retry",
+            "success" if success else "failed",
+            error_msg,
+        )
 
         if success:
             success_count += 1
         else:
             failed_count += 1
-            failed_list.append({
-                'id': account_id,
-                'email': account_email,
-                'error': error_msg
-            })
+            failed_list.append(
+                {"id": account_id, "email": account_email, "error": error_msg}
+            )
 
-    return jsonify({
-        'success': True,
-        'total': len(accounts),
-        'success_count': success_count,
-        'failed_count': failed_count,
-        'failed_list': failed_list
-    })
+    return jsonify(
+        {
+            "success": True,
+            "total": len(accounts),
+            "success_count": success_count,
+            "failed_count": failed_count,
+            "failed_list": failed_list,
+        }
+    )
 
 
-@app.route('/api/accounts/trigger-scheduled-refresh', methods=['GET'])
+@app.route("/api/accounts/trigger-scheduled-refresh", methods=["GET"])
 @login_required
 def api_trigger_scheduled_refresh():
     """手动触发定时刷新（支持强制刷新）"""
     import json
     from datetime import datetime, timedelta
 
-    force = request.args.get('force', 'false').lower() == 'true'
-    resume = request.args.get('resume', 'true').lower() == 'true'
+    force = request.args.get("force", "false").lower() == "true"
+    resume = request.args.get("resume", "true").lower() == "true"
 
     # 获取配置
-    refresh_interval_days = int(get_setting('refresh_interval_days', '30'))
+    refresh_interval_days = int(get_setting("refresh_interval_days", "30"))
 
     # 检查上次刷新时间
     db = get_db()
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT MAX(created_at) as last_refresh
         FROM account_refresh_logs
         WHERE refresh_type = 'scheduled'
-    ''')
+    """)
     row = cursor.fetchone()
-    last_refresh = row['last_refresh'] if row and row['last_refresh'] else None
+    last_refresh = row["last_refresh"] if row and row["last_refresh"] else None
 
     # 判断是否需要刷新（force=true 时跳过检查）
     if not force and last_refresh:
         last_refresh_time = datetime.fromisoformat(last_refresh)
         next_refresh_time = last_refresh_time + timedelta(days=refresh_interval_days)
         if datetime.now() < next_refresh_time:
-            return jsonify({
-                'success': False,
-                'message': f'距离上次刷新未满 {refresh_interval_days} 天，下次刷新时间：{next_refresh_time.strftime("%Y-%m-%d %H:%M:%S")}',
-                'last_refresh': last_refresh,
-                'next_refresh': next_refresh_time.isoformat()
-            })
+            return jsonify(
+                {
+                    "success": False,
+                    "message": f"距离上次刷新未满 {refresh_interval_days} 天，下次刷新时间：{next_refresh_time.strftime('%Y-%m-%d %H:%M:%S')}",
+                    "last_refresh": last_refresh,
+                    "next_refresh": next_refresh_time.isoformat(),
+                }
+            )
 
     # 执行刷新（使用流式响应）
     def generate():
@@ -2900,7 +3624,9 @@ def api_trigger_scheduled_refresh():
         try:
             # 清理超过半年的刷新记录
             try:
-                conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
+                conn.execute(
+                    "DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')"
+                )
                 conn.commit()
             except Exception as e:
                 print(f"清理旧记录失败: {str(e)}")
@@ -2909,35 +3635,36 @@ def api_trigger_scheduled_refresh():
                 "SELECT id, email, client_id, refresh_token FROM accounts WHERE status = 'active' ORDER BY id"
             )
             accounts = cursor.fetchall()
-            config = _resolve_refresh_config(conn, len(accounts), mode='group')
+            config = _resolve_refresh_config(conn, len(accounts), mode="group")
 
             for event in _refresh_accounts_generator(
                 conn=conn,
                 accounts=accounts,
-                refresh_type='scheduled',
-                delay_seconds=config['delay_seconds'],
+                refresh_type="scheduled",
+                delay_seconds=config["delay_seconds"],
                 resume=resume,
-                max_workers=config['max_workers'],
-                batch_size=config['batch_size'],
-                scope_label='scheduled'
+                max_workers=config["max_workers"],
+                batch_size=config["batch_size"],
+                scope_label="scheduled",
             ):
                 yield f"data: {json.dumps(event)}\n\n"
 
         finally:
             conn.close()
 
-    return Response(generate(), mimetype='text/event-stream')
+    return Response(generate(), mimetype="text/event-stream")
 
 
-@app.route('/api/accounts/refresh-logs', methods=['GET'])
+@app.route("/api/accounts/refresh-logs", methods=["GET"])
 @login_required
 def api_get_refresh_logs():
     """获取所有账号的刷新历史（只返回全量刷新：manual 和 scheduled，近半年）"""
     db = get_db()
-    limit = int(request.args.get('limit', 1000))
-    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get("limit", 1000))
+    offset = int(request.args.get("offset", 0))
 
-    cursor = db.execute('''
+    cursor = db.execute(
+        """
         SELECT l.*, a.email as account_email
         FROM account_refresh_logs l
         LEFT JOIN accounts a ON l.account_id = a.id
@@ -2945,61 +3672,70 @@ def api_get_refresh_logs():
         AND l.created_at >= datetime('now', '-6 months')
         ORDER BY l.created_at DESC
         LIMIT ? OFFSET ?
-    ''', (limit, offset))
+    """,
+        (limit, offset),
+    )
 
     logs = []
     for row in cursor.fetchall():
-        logs.append({
-            'id': row['id'],
-            'account_id': row['account_id'],
-            'account_email': row['account_email'] or row['account_email'],
-            'refresh_type': row['refresh_type'],
-            'status': row['status'],
-            'error_message': row['error_message'],
-            'created_at': row['created_at']
-        })
+        logs.append(
+            {
+                "id": row["id"],
+                "account_id": row["account_id"],
+                "account_email": row["account_email"] or row["account_email"],
+                "refresh_type": row["refresh_type"],
+                "status": row["status"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+            }
+        )
 
-    return jsonify({'success': True, 'logs': logs})
+    return jsonify({"success": True, "logs": logs})
 
 
-@app.route('/api/accounts/<int:account_id>/refresh-logs', methods=['GET'])
+@app.route("/api/accounts/<int:account_id>/refresh-logs", methods=["GET"])
 @login_required
 def api_get_account_refresh_logs(account_id):
     """获取单个账号的刷新历史"""
     db = get_db()
-    limit = int(request.args.get('limit', 50))
-    offset = int(request.args.get('offset', 0))
+    limit = int(request.args.get("limit", 50))
+    offset = int(request.args.get("offset", 0))
 
-    cursor = db.execute('''
+    cursor = db.execute(
+        """
         SELECT * FROM account_refresh_logs
         WHERE account_id = ?
         ORDER BY created_at DESC
         LIMIT ? OFFSET ?
-    ''', (account_id, limit, offset))
+    """,
+        (account_id, limit, offset),
+    )
 
     logs = []
     for row in cursor.fetchall():
-        logs.append({
-            'id': row['id'],
-            'account_id': row['account_id'],
-            'account_email': row['account_email'],
-            'refresh_type': row['refresh_type'],
-            'status': row['status'],
-            'error_message': row['error_message'],
-            'created_at': row['created_at']
-        })
+        logs.append(
+            {
+                "id": row["id"],
+                "account_id": row["account_id"],
+                "account_email": row["account_email"],
+                "refresh_type": row["refresh_type"],
+                "status": row["status"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+            }
+        )
 
-    return jsonify({'success': True, 'logs': logs})
+    return jsonify({"success": True, "logs": logs})
 
 
-@app.route('/api/accounts/refresh-logs/failed', methods=['GET'])
+@app.route("/api/accounts/refresh-logs/failed", methods=["GET"])
 @login_required
 def api_get_failed_refresh_logs():
     """获取所有失败的刷新记录"""
     db = get_db()
 
     # 获取每个账号最近一次失败的刷新记录
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT l.*, a.email as account_email, a.status as account_status
         FROM account_refresh_logs l
         INNER JOIN (
@@ -3010,46 +3746,48 @@ def api_get_failed_refresh_logs():
         LEFT JOIN accounts a ON l.account_id = a.id
         WHERE l.status = 'failed'
         ORDER BY l.created_at DESC
-    ''')
+    """)
 
     logs = []
     for row in cursor.fetchall():
-        logs.append({
-            'id': row['id'],
-            'account_id': row['account_id'],
-            'account_email': row['account_email'] or row['account_email'],
-            'account_status': row['account_status'],
-            'refresh_type': row['refresh_type'],
-            'status': row['status'],
-            'error_message': row['error_message'],
-            'created_at': row['created_at']
-        })
+        logs.append(
+            {
+                "id": row["id"],
+                "account_id": row["account_id"],
+                "account_email": row["account_email"] or row["account_email"],
+                "account_status": row["account_status"],
+                "refresh_type": row["refresh_type"],
+                "status": row["status"],
+                "error_message": row["error_message"],
+                "created_at": row["created_at"],
+            }
+        )
 
-    return jsonify({'success': True, 'logs': logs})
+    return jsonify({"success": True, "logs": logs})
 
 
-@app.route('/api/accounts/refresh-stats', methods=['GET'])
+@app.route("/api/accounts/refresh-stats", methods=["GET"])
 @login_required
 def api_get_refresh_stats():
     """获取刷新统计信息（统计当前失败状态的邮箱数量）"""
     db = get_db()
 
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT MAX(created_at) as last_refresh_time
         FROM account_refresh_logs
         WHERE refresh_type IN ('manual', 'scheduled')
-    ''')
+    """)
     row = cursor.fetchone()
-    last_refresh_time = row['last_refresh_time'] if row else None
+    last_refresh_time = row["last_refresh_time"] if row else None
 
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT COUNT(*) as total_accounts
         FROM accounts
         WHERE status = 'active'
-    ''')
-    total_accounts = cursor.fetchone()['total_accounts']
+    """)
+    total_accounts = cursor.fetchone()["total_accounts"]
 
-    cursor = db.execute('''
+    cursor = db.execute("""
         SELECT COUNT(DISTINCT l.account_id) as failed_count
         FROM account_refresh_logs l
         INNER JOIN (
@@ -3059,41 +3797,45 @@ def api_get_refresh_stats():
         ) latest ON l.account_id = latest.account_id AND l.created_at = latest.last_refresh
         INNER JOIN accounts a ON l.account_id = a.id
         WHERE l.status = 'failed' AND a.status = 'active'
-    ''')
-    failed_count = cursor.fetchone()['failed_count']
+    """)
+    failed_count = cursor.fetchone()["failed_count"]
 
-    return jsonify({
-        'success': True,
-        'stats': {
-            'total': total_accounts,
-            'success_count': total_accounts - failed_count,
-            'failed_count': failed_count,
-            'last_refresh_time': last_refresh_time
+    return jsonify(
+        {
+            "success": True,
+            "stats": {
+                "total": total_accounts,
+                "success_count": total_accounts - failed_count,
+                "failed_count": failed_count,
+                "last_refresh_time": last_refresh_time,
+            },
         }
-    })
+    )
 
 
 # ==================== 邮件 API ====================
 
 
-
 # ==================== Email Deletion Helpers ====================
 
-def delete_emails_graph(client_id: str, refresh_token: str, message_ids: List[str]) -> Dict[str, Any]:
+
+def delete_emails_graph(
+    client_id: str, refresh_token: str, message_ids: List[str]
+) -> Dict[str, Any]:
     """通过 Graph API 批量删除邮件（永久删除）"""
     access_token = get_access_token_graph(client_id, refresh_token)
     if not access_token:
         return {"success": False, "error": "获取 Access Token 失败"}
 
     headers = {
-        'Authorization': f'Bearer {access_token}',
-        'Content-Type': 'application/json'
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
     }
 
     # Graph API 不支持一次性批量删除所有邮件，需要逐个删除
     # 但可以使用 batch 请求来优化
     # https://learn.microsoft.com/en-us/graph/json-batching
-    
+
     # 限制每批次请求数量（Graph API 限制为 20）
     BATCH_SIZE = 20
     success_count = 0
@@ -3101,25 +3843,23 @@ def delete_emails_graph(client_id: str, refresh_token: str, message_ids: List[st
     errors = []
 
     for i in range(0, len(message_ids), BATCH_SIZE):
-        batch = message_ids[i:i + BATCH_SIZE]
-        
+        batch = message_ids[i : i + BATCH_SIZE]
+
         # 构造 batch 请求 body
         batch_requests = []
         for idx, msg_id in enumerate(batch):
-            batch_requests.append({
-                "id": str(idx),
-                "method": "DELETE",
-                "url": f"/me/messages/{msg_id}"
-            })
-        
+            batch_requests.append(
+                {"id": str(idx), "method": "DELETE", "url": f"/me/messages/{msg_id}"}
+            )
+
         try:
             response = requests.post(
                 "https://graph.microsoft.com/v1.0/$batch",
                 headers=headers,
                 json={"requests": batch_requests},
-                timeout=30
+                timeout=30,
             )
-            
+
             if response.status_code == 200:
                 results = response.json().get("responses", [])
                 for res in results:
@@ -3128,11 +3868,13 @@ def delete_emails_graph(client_id: str, refresh_token: str, message_ids: List[st
                     else:
                         failed_count += 1
                         # 记录具体错误
-                        errors.append(f"Msg ID: {batch[int(res['id'])]}, Status: {res.get('status')}")
+                        errors.append(
+                            f"Msg ID: {batch[int(res['id'])]}, Status: {res.get('status')}"
+                        )
             else:
                 failed_count += len(batch)
                 errors.append(f"Batch request failed: {response.text}")
-                
+
         except Exception as e:
             failed_count += len(batch)
             errors.append(f"Network error: {str(e)}")
@@ -3141,37 +3883,45 @@ def delete_emails_graph(client_id: str, refresh_token: str, message_ids: List[st
         "success": failed_count == 0,
         "success_count": success_count,
         "failed_count": failed_count,
-        "errors": errors
+        "errors": errors,
     }
 
-def delete_emails_imap(email_addr: str, client_id: str, refresh_token: str, message_ids: List[str], server: str) -> Dict[str, Any]:
+
+def delete_emails_imap(
+    email_addr: str,
+    client_id: str,
+    refresh_token: str,
+    message_ids: List[str],
+    server: str,
+) -> Dict[str, Any]:
     """通过 IMAP 删除邮件（永久删除）"""
     access_token = get_access_token_graph(client_id, refresh_token)
     if not access_token:
         return {"success": False, "error": "获取 Access Token 失败"}
-        
+
     try:
         # 生成 OAuth2 认证字符串
-        auth_string = 'user=%s\x01auth=Bearer %s\x01\x01' % (email_addr, access_token)
-        
+        auth_string = "user=%s\x01auth=Bearer %s\x01\x01" % (email_addr, access_token)
+
         # 连接 IMAP
         imap = imaplib.IMAP4_SSL(server, IMAP_PORT)
-        imap.authenticate('XOAUTH2', lambda x: auth_string.encode('utf-8'))
-        
+        imap.authenticate("XOAUTH2", lambda x: auth_string.encode("utf-8"))
+
         # 选择文件夹
-        imap.select('INBOX')
-        
+        imap.select("INBOX")
+
         # IMAP 删除需要 UID。如果我们没有 UID，这很难。
         # 鉴于我们只实现了 Graph 删除，并且 fallback 到 IMAP 比较复杂，
         # 这里暂时返回不支持，或仅做简单的尝试（如果 ID 恰好是 UID）
         # 但通常 Graph ID 不是 UID。
-        
+
         return {"success": False, "error": "IMAP 删除暂不支持 (ID 格式不兼容)"}
-        
+
     except Exception as e:
         return {"success": False, "error": str(e)}
 
-@app.route('/api/emails/<email_addr>')
+
+@app.route("/api/emails/<email_addr>")
 @login_required
 def api_get_emails(email_addr):
     """获取邮件列表（支持分页，不使用缓存）"""
@@ -3183,152 +3933,204 @@ def api_get_emails(email_addr):
             "账号不存在",
             "NotFoundError",
             404,
-            f"email={email_addr}"
+            f"email={email_addr}",
         )
-        return jsonify({'success': False, 'error': error_payload})
+        return jsonify({"success": False, "error": error_payload})
 
-    folder = request.args.get('folder', 'inbox')  # inbox, junkemail, deleteditems
-    skip = int(request.args.get('skip', 0))
-    top = int(request.args.get('top', 20))
+    folder = request.args.get("folder", "inbox")  # inbox, junkemail, deleteditems
+    skip = int(request.args.get("skip", 0))
+    top = int(request.args.get("top", 20))
 
     # 收集所有错误信息
     all_errors = {}
 
     # 1. 尝试 Graph API
-    graph_result = get_emails_graph(account['client_id'], account['refresh_token'], folder, skip, top)
+    graph_result = get_emails_graph(
+        account["client_id"], account["refresh_token"], folder, skip, top
+    )
     if graph_result.get("success"):
         emails = graph_result.get("emails", [])
         # 更新刷新时间
         db = get_db()
-        db.execute('''
+        db.execute(
+            """
             UPDATE accounts
             SET last_refresh_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
             WHERE email = ?
-        ''', (email_addr,))
+        """,
+            (email_addr,),
+        )
         db.commit()
 
         # 格式化 Graph API 返回的数据
         formatted = []
         for e in emails:
-            formatted.append({
-                'id': e.get('id'),
-                'subject': e.get('subject', '无主题'),
-                'from': e.get('from', {}).get('emailAddress', {}).get('address', '未知'),
-                'date': e.get('receivedDateTime', ''),
-                'is_read': e.get('isRead', False),
-                'has_attachments': e.get('hasAttachments', False),
-                'body_preview': e.get('bodyPreview', '')
-            })
+            formatted.append(
+                {
+                    "id": e.get("id"),
+                    "subject": e.get("subject", "无主题"),
+                    "from": e.get("from", {})
+                    .get("emailAddress", {})
+                    .get("address", "未知"),
+                    "date": e.get("receivedDateTime", ""),
+                    "is_read": e.get("isRead", False),
+                    "has_attachments": e.get("hasAttachments", False),
+                    "body_preview": e.get("bodyPreview", ""),
+                }
+            )
 
-        return jsonify({
-            'success': True,
-            'emails': formatted,
-            'method': 'Graph API',
-            'has_more': len(formatted) >= top
-        })
+        return jsonify(
+            {
+                "success": True,
+                "emails": formatted,
+                "method": "Graph API",
+                "has_more": len(formatted) >= top,
+            }
+        )
     else:
         all_errors["graph"] = graph_result.get("error")
 
     imap_new_result = get_emails_imap_with_server(
-        account['email'], account['client_id'], account['refresh_token'],
-        folder, skip, top, IMAP_SERVER_NEW
+        account["email"],
+        account["client_id"],
+        account["refresh_token"],
+        folder,
+        skip,
+        top,
+        IMAP_SERVER_NEW,
     )
     if imap_new_result.get("success"):
-        return jsonify({
-            'success': True,
-            'emails': imap_new_result.get("emails", []),
-            'method': 'IMAP (New)',
-            'has_more': False # IMAP 分页暂未完全实现，视情况
-        })
+        return jsonify(
+            {
+                "success": True,
+                "emails": imap_new_result.get("emails", []),
+                "method": "IMAP (New)",
+                "has_more": False,  # IMAP 分页暂未完全实现，视情况
+            }
+        )
     else:
         all_errors["imap_new"] = imap_new_result.get("error")
 
     # 3. 尝试旧版 IMAP (outlook.office365.com)
     imap_old_result = get_emails_imap_with_server(
-        account['email'], account['client_id'], account['refresh_token'],
-        folder, skip, top, IMAP_SERVER_OLD
+        account["email"],
+        account["client_id"],
+        account["refresh_token"],
+        folder,
+        skip,
+        top,
+        IMAP_SERVER_OLD,
     )
     if imap_old_result.get("success"):
-        return jsonify({
-            'success': True,
-            'emails': imap_old_result.get("emails", []),
-            'method': 'IMAP (Old)',
-            'has_more': False
-        })
+        return jsonify(
+            {
+                "success": True,
+                "emails": imap_old_result.get("emails", []),
+                "method": "IMAP (Old)",
+                "has_more": False,
+            }
+        )
     else:
         all_errors["imap_old"] = imap_old_result.get("error")
 
-    return jsonify({
-        'success': False, 
-        'error': '无法获取邮件，所有方式均失败',
-        'details': all_errors
-    })
+    return jsonify(
+        {
+            "success": False,
+            "error": "无法获取邮件，所有方式均失败",
+            "details": all_errors,
+        }
+    )
 
-@app.route('/api/emails/delete', methods=['POST'])
+
+@app.route("/api/emails/delete", methods=["POST"])
 @login_required
 def api_delete_emails():
     """批量删除邮件（永久删除）"""
     data = request.json
-    email_addr = data.get('email', '')
-    message_ids = data.get('ids', [])
-    
+    email_addr = data.get("email", "")
+    message_ids = data.get("ids", [])
+
     if not email_addr or not message_ids:
-        return jsonify({'success': False, 'error': '参数不完整'})
+        return jsonify({"success": False, "error": "参数不完整"})
 
     account = get_account_by_email(email_addr)
     if not account:
-        return jsonify({'success': False, 'error': '账号不存在'})
+        return jsonify({"success": False, "error": "账号不存在"})
 
     # 1. 优先尝试 Graph API
-    graph_res = delete_emails_graph(account['client_id'], account['refresh_token'], message_ids)
-    if graph_res['success']:
+    graph_res = delete_emails_graph(
+        account["client_id"], account["refresh_token"], message_ids
+    )
+    if graph_res["success"]:
         return jsonify(graph_res)
-    
+
     # 2. 如果 Graph API 失败，目前暂不支持 IMAP 自动回退
     return jsonify(graph_res)
 
 
-
-@app.route('/api/email/<email_addr>/<path:message_id>')
+@app.route("/api/email/<email_addr>/<path:message_id>")
 @login_required
 def api_get_email_detail(email_addr, message_id):
     """获取邮件详情"""
     account = get_account_by_email(email_addr)
 
     if not account:
-        return jsonify({'success': False, 'error': '账号不存在'})
+        return jsonify({"success": False, "error": "账号不存在"})
 
-    method = request.args.get('method', 'graph')
-    folder = request.args.get('folder', 'inbox')
+    method = request.args.get("method", "graph")
+    folder = request.args.get("folder", "inbox")
 
-    if method == 'graph':
-        detail = get_email_detail_graph(account['client_id'], account['refresh_token'], message_id)
+    if method == "graph":
+        detail = get_email_detail_graph(
+            account["client_id"], account["refresh_token"], message_id
+        )
         if detail:
-            return jsonify({
-                'success': True,
-                'email': {
-                    'id': detail.get('id'),
-                    'subject': detail.get('subject', '无主题'),
-                    'from': detail.get('from', {}).get('emailAddress', {}).get('address', '未知'),
-                    'to': ', '.join([r.get('emailAddress', {}).get('address', '') for r in detail.get('toRecipients', [])]),
-                    'cc': ', '.join([r.get('emailAddress', {}).get('address', '') for r in detail.get('ccRecipients', [])]),
-                    'date': detail.get('receivedDateTime', ''),
-                    'body': detail.get('body', {}).get('content', ''),
-                    'body_type': detail.get('body', {}).get('contentType', 'text')
+            return jsonify(
+                {
+                    "success": True,
+                    "email": {
+                        "id": detail.get("id"),
+                        "subject": detail.get("subject", "无主题"),
+                        "from": detail.get("from", {})
+                        .get("emailAddress", {})
+                        .get("address", "未知"),
+                        "to": ", ".join(
+                            [
+                                r.get("emailAddress", {}).get("address", "")
+                                for r in detail.get("toRecipients", [])
+                            ]
+                        ),
+                        "cc": ", ".join(
+                            [
+                                r.get("emailAddress", {}).get("address", "")
+                                for r in detail.get("ccRecipients", [])
+                            ]
+                        ),
+                        "date": detail.get("receivedDateTime", ""),
+                        "body": detail.get("body", {}).get("content", ""),
+                        "body_type": detail.get("body", {}).get("contentType", "text"),
+                    },
                 }
-            })
+            )
 
     # 如果 Graph API 失败，尝试 IMAP
-    detail = get_email_detail_imap(account['email'], account['client_id'], account['refresh_token'], message_id, folder)
+    detail = get_email_detail_imap(
+        account["email"],
+        account["client_id"],
+        account["refresh_token"],
+        message_id,
+        folder,
+    )
     if detail:
-        return jsonify({'success': True, 'email': detail})
+        return jsonify({"success": True, "email": detail})
 
-    return jsonify({'success': False, 'error': '获取邮件详情失败'})
+    return jsonify({"success": False, "error": "获取邮件详情失败"})
 
 
 # ==================== OAuth Token API ====================
 
-@app.route('/api/oauth/auth-url', methods=['GET'])
+
+@app.route("/api/oauth/auth-url", methods=["GET"])
 @login_required
 def api_get_oauth_auth_url():
     """生成 OAuth 授权 URL"""
@@ -3341,37 +4143,41 @@ def api_get_oauth_auth_url():
         "redirect_uri": OAUTH_REDIRECT_URI,
         "response_mode": "query",
         "scope": " ".join(OAUTH_SCOPES),
-        "state": "12345"
+        "state": "12345",
     }
     auth_url = f"{base_auth_url}?{urllib.parse.urlencode(params)}"
 
-    return jsonify({
-        'success': True,
-        'auth_url': auth_url,
-        'client_id': OAUTH_CLIENT_ID,
-        'redirect_uri': OAUTH_REDIRECT_URI
-    })
+    return jsonify(
+        {
+            "success": True,
+            "auth_url": auth_url,
+            "client_id": OAUTH_CLIENT_ID,
+            "redirect_uri": OAUTH_REDIRECT_URI,
+        }
+    )
 
 
-@app.route('/api/oauth/exchange-token', methods=['POST'])
+@app.route("/api/oauth/exchange-token", methods=["POST"])
 @login_required
 def api_exchange_oauth_token():
     """使用授权码换取 Refresh Token"""
     import urllib.parse
 
     data = request.json
-    redirected_url = data.get('redirected_url', '').strip()
+    redirected_url = data.get("redirected_url", "").strip()
 
     if not redirected_url:
-        return jsonify({'success': False, 'error': '请提供授权后的完整 URL'})
+        return jsonify({"success": False, "error": "请提供授权后的完整 URL"})
 
     # 从 URL 中提取 code
     try:
         parsed_url = urllib.parse.urlparse(redirected_url)
         query_params = urllib.parse.parse_qs(parsed_url.query)
-        auth_code = query_params['code'][0]
+        auth_code = query_params["code"][0]
     except (KeyError, IndexError):
-        return jsonify({'success': False, 'error': '无法从 URL 中提取授权码，请检查 URL 是否正确'})
+        return jsonify(
+            {"success": False, "error": "无法从 URL 中提取授权码，请检查 URL 是否正确"}
+        )
 
     # 使用 Code 换取 Token (Public Client 不需要 client_secret)
     token_url = "https://login.microsoftonline.com/common/oauth2/v2.0/token"
@@ -3380,38 +4186,45 @@ def api_exchange_oauth_token():
         "code": auth_code,
         "redirect_uri": OAUTH_REDIRECT_URI,
         "grant_type": "authorization_code",
-        "scope": " ".join(OAUTH_SCOPES)
+        "scope": " ".join(OAUTH_SCOPES),
     }
 
     try:
         response = requests.post(token_url, data=token_data, timeout=30)
     except Exception as e:
-        return jsonify({'success': False, 'error': f'请求失败: {str(e)}'})
+        return jsonify({"success": False, "error": f"请求失败: {str(e)}"})
 
     if response.status_code == 200:
         tokens = response.json()
-        refresh_token = tokens.get('refresh_token')
+        refresh_token = tokens.get("refresh_token")
 
         if not refresh_token:
-            return jsonify({'success': False, 'error': '未能获取 Refresh Token'})
+            return jsonify({"success": False, "error": "未能获取 Refresh Token"})
 
-        return jsonify({
-            'success': True,
-            'refresh_token': refresh_token,
-            'client_id': OAUTH_CLIENT_ID,
-            'token_type': tokens.get('token_type'),
-            'expires_in': tokens.get('expires_in'),
-            'scope': tokens.get('scope')
-        })
+        return jsonify(
+            {
+                "success": True,
+                "refresh_token": refresh_token,
+                "client_id": OAUTH_CLIENT_ID,
+                "token_type": tokens.get("token_type"),
+                "expires_in": tokens.get("expires_in"),
+                "scope": tokens.get("scope"),
+            }
+        )
     else:
-        error_data = response.json() if response.headers.get('content-type', '').startswith('application/json') else {}
-        error_msg = error_data.get('error_description', response.text)
-        return jsonify({'success': False, 'error': f'获取令牌失败: {error_msg}'})
+        error_data = (
+            response.json()
+            if response.headers.get("content-type", "").startswith("application/json")
+            else {}
+        )
+        error_msg = error_data.get("error_description", response.text)
+        return jsonify({"success": False, "error": f"获取令牌失败: {error_msg}"})
 
 
 # ==================== 设置 API ====================
 
-@app.route('/api/settings/validate-cron', methods=['POST'])
+
+@app.route("/api/settings/validate-cron", methods=["POST"])
 @login_required
 def api_validate_cron():
     """验证 Cron 表达式"""
@@ -3419,13 +4232,18 @@ def api_validate_cron():
         from croniter import croniter
         from datetime import datetime
     except ImportError:
-        return jsonify({'success': False, 'error': 'croniter 库未安装，请运行: pip install croniter'})
+        return jsonify(
+            {
+                "success": False,
+                "error": "croniter 库未安装，请运行: pip install croniter",
+            }
+        )
 
     data = request.json
-    cron_expr = data.get('cron_expression', '').strip()
+    cron_expr = data.get("cron_expression", "").strip()
 
     if not cron_expr:
-        return jsonify({'success': False, 'error': 'Cron 表达式不能为空'})
+        return jsonify({"success": False, "error": "Cron 表达式不能为空"})
 
     try:
         base_time = datetime.now()
@@ -3438,37 +4256,37 @@ def api_validate_cron():
         for _ in range(5):
             future_runs.append(temp_cron.get_next(datetime).isoformat())
 
-        return jsonify({
-            'success': True,
-            'valid': True,
-            'next_run': next_run.isoformat(),
-            'future_runs': future_runs
-        })
+        return jsonify(
+            {
+                "success": True,
+                "valid": True,
+                "next_run": next_run.isoformat(),
+                "future_runs": future_runs,
+            }
+        )
     except Exception as e:
-        return jsonify({
-            'success': False,
-            'valid': False,
-            'error': f'Cron 表达式无效: {str(e)}'
-        })
+        return jsonify(
+            {"success": False, "valid": False, "error": f"Cron 表达式无效: {str(e)}"}
+        )
 
 
-@app.route('/api/settings', methods=['GET'])
+@app.route("/api/settings", methods=["GET"])
 @login_required
 def api_get_settings():
     """获取所有设置"""
     settings = get_all_settings()
-    settings.pop('gptmail_api_key', None)
+    settings.pop("gptmail_api_key", None)
     # 隐藏密码的部分字符
-    if 'login_password' in settings:
-        pwd = settings['login_password']
+    if "login_password" in settings:
+        pwd = settings["login_password"]
         if len(pwd) > 2:
-            settings['login_password_masked'] = pwd[0] + '*' * (len(pwd) - 2) + pwd[-1]
+            settings["login_password_masked"] = pwd[0] + "*" * (len(pwd) - 2) + pwd[-1]
         else:
-            settings['login_password_masked'] = '*' * len(pwd)
-    return jsonify({'success': True, 'settings': settings})
+            settings["login_password_masked"] = "*" * len(pwd)
+    return jsonify({"success": True, "settings": settings})
 
 
-@app.route('/api/settings', methods=['PUT'])
+@app.route("/api/settings", methods=["PUT"])
 @login_required
 def api_update_settings():
     """更新设置"""
@@ -3477,91 +4295,92 @@ def api_update_settings():
     errors = []
 
     # 更新登录密码
-    if 'login_password' in data:
-        new_password = data['login_password'].strip()
+    if "login_password" in data:
+        new_password = data["login_password"].strip()
         if new_password:
             if len(new_password) < 8:
-                errors.append('密码长度至少为 8 位')
+                errors.append("密码长度至少为 8 位")
             else:
                 # 哈希新密码
                 hashed_password = hash_password(new_password)
-                if set_setting('login_password', hashed_password):
-                    updated.append('登录密码')
+                if set_setting("login_password", hashed_password):
+                    updated.append("登录密码")
                 else:
-                    errors.append('更新登录密码失败')
+                    errors.append("更新登录密码失败")
 
     # 更新刷新周期
-    if 'refresh_interval_days' in data:
+    if "refresh_interval_days" in data:
         try:
-            days = int(data['refresh_interval_days'])
+            days = int(data["refresh_interval_days"])
             if days < 1 or days > 90:
-                errors.append('刷新周期必须在 1-90 天之间')
-            elif set_setting('refresh_interval_days', str(days)):
-                updated.append('刷新周期')
+                errors.append("刷新周期必须在 1-90 天之间")
+            elif set_setting("refresh_interval_days", str(days)):
+                updated.append("刷新周期")
             else:
-                errors.append('更新刷新周期失败')
+                errors.append("更新刷新周期失败")
         except ValueError:
-            errors.append('刷新周期必须是数字')
+            errors.append("刷新周期必须是数字")
 
     # 更新刷新间隔
-    if 'refresh_delay_seconds' in data:
+    if "refresh_delay_seconds" in data:
         try:
-            seconds = int(data['refresh_delay_seconds'])
+            seconds = int(data["refresh_delay_seconds"])
             if seconds < 0 or seconds > 60:
-                errors.append('刷新间隔必须在 0-60 秒之间')
-            elif set_setting('refresh_delay_seconds', str(seconds)):
-                updated.append('刷新间隔')
+                errors.append("刷新间隔必须在 0-60 秒之间")
+            elif set_setting("refresh_delay_seconds", str(seconds)):
+                updated.append("刷新间隔")
             else:
-                errors.append('更新刷新间隔失败')
+                errors.append("更新刷新间隔失败")
         except ValueError:
-            errors.append('刷新间隔必须是数字')
+            errors.append("刷新间隔必须是数字")
 
     # 更新 Cron 表达式
-    if 'refresh_cron' in data:
-        cron_expr = data['refresh_cron'].strip()
+    if "refresh_cron" in data:
+        cron_expr = data["refresh_cron"].strip()
         if cron_expr:
             try:
                 from croniter import croniter
                 from datetime import datetime
+
                 croniter(cron_expr, datetime.now())
-                if set_setting('refresh_cron', cron_expr):
-                    updated.append('Cron 表达式')
+                if set_setting("refresh_cron", cron_expr):
+                    updated.append("Cron 表达式")
                 else:
-                    errors.append('更新 Cron 表达式失败')
+                    errors.append("更新 Cron 表达式失败")
             except ImportError:
-                errors.append('croniter 库未安装')
+                errors.append("croniter 库未安装")
             except Exception as e:
-                errors.append(f'Cron 表达式无效: {str(e)}')
+                errors.append(f"Cron 表达式无效: {str(e)}")
 
     # 更新刷新策略
-    if 'use_cron_schedule' in data:
-        use_cron = str(data['use_cron_schedule']).lower()
-        if use_cron in ('true', 'false'):
-            if set_setting('use_cron_schedule', use_cron):
-                updated.append('刷新策略')
+    if "use_cron_schedule" in data:
+        use_cron = str(data["use_cron_schedule"]).lower()
+        if use_cron in ("true", "false"):
+            if set_setting("use_cron_schedule", use_cron):
+                updated.append("刷新策略")
             else:
-                errors.append('更新刷新策略失败')
+                errors.append("更新刷新策略失败")
         else:
-            errors.append('刷新策略必须是 true 或 false')
+            errors.append("刷新策略必须是 true 或 false")
 
     # 更新定时刷新开关
-    if 'enable_scheduled_refresh' in data:
-        enable = str(data['enable_scheduled_refresh']).lower()
-        if enable in ('true', 'false'):
-            if set_setting('enable_scheduled_refresh', enable):
-                updated.append('定时刷新开关')
+    if "enable_scheduled_refresh" in data:
+        enable = str(data["enable_scheduled_refresh"]).lower()
+        if enable in ("true", "false"):
+            if set_setting("enable_scheduled_refresh", enable):
+                updated.append("定时刷新开关")
             else:
-                errors.append('更新定时刷新开关失败')
+                errors.append("更新定时刷新开关失败")
         else:
-            errors.append('定时刷新开关必须是 true 或 false')
+            errors.append("定时刷新开关必须是 true 或 false")
 
     if errors:
-        return jsonify({'success': False, 'error': '；'.join(errors)})
+        return jsonify({"success": False, "error": "；".join(errors)})
 
     if updated:
-        return jsonify({'success': True, 'message': f'已更新：{", ".join(updated)}'})
+        return jsonify({"success": True, "message": f"已更新：{', '.join(updated)}"})
     else:
-        return jsonify({'success': False, 'error': '没有需要更新的设置'})
+        return jsonify({"success": False, "error": "没有需要更新的设置"})
 
 
 # ==================== 定时任务调度器 ====================
@@ -3569,11 +4388,15 @@ def api_update_settings():
 SCHEDULER_INSTANCE_ID = uuid.uuid4().hex
 SCHEDULER_LOCK_KEY = "scheduler_lock"
 SCHEDULER_LOCK_TTL_SECONDS = int(os.getenv("SCHEDULER_LOCK_TTL_SECONDS", "120"))
-SCHEDULER_LOCK_HEARTBEAT_SECONDS = int(os.getenv("SCHEDULER_LOCK_HEARTBEAT_SECONDS", "60"))
+SCHEDULER_LOCK_HEARTBEAT_SECONDS = int(
+    os.getenv("SCHEDULER_LOCK_HEARTBEAT_SECONDS", "60")
+)
 
 
 def _load_scheduler_lock(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
-    cursor = conn.execute("SELECT value FROM settings WHERE key = ?", (SCHEDULER_LOCK_KEY,))
+    cursor = conn.execute(
+        "SELECT value FROM settings WHERE key = ?", (SCHEDULER_LOCK_KEY,)
+    )
     row = cursor.fetchone()
     if not row:
         return None
@@ -3584,14 +4407,14 @@ def _load_scheduler_lock(conn: sqlite3.Connection) -> Optional[Dict[str, Any]]:
 
 
 def _write_scheduler_lock(conn: sqlite3.Connection, owner_id: str) -> None:
-    payload = {
-        "owner": owner_id,
-        "updated_at": datetime.now().isoformat()
-    }
-    conn.execute('''
+    payload = {"owner": owner_id, "updated_at": datetime.now().isoformat()}
+    conn.execute(
+        """
         INSERT OR REPLACE INTO settings (key, value, updated_at)
         VALUES (?, ?, CURRENT_TIMESTAMP)
-    ''', (SCHEDULER_LOCK_KEY, json.dumps(payload, ensure_ascii=True)))
+    """,
+        (SCHEDULER_LOCK_KEY, json.dumps(payload, ensure_ascii=True)),
+    )
 
 
 def try_acquire_scheduler_lock() -> bool:
@@ -3604,10 +4427,16 @@ def try_acquire_scheduler_lock() -> bool:
         if lock:
             updated_at = lock.get("updated_at")
             try:
-                updated_time = datetime.fromisoformat(updated_at) if updated_at else None
+                updated_time = (
+                    datetime.fromisoformat(updated_at) if updated_at else None
+                )
             except Exception:
                 updated_time = None
-            if updated_time and (datetime.now() - updated_time).total_seconds() < SCHEDULER_LOCK_TTL_SECONDS:
+            if (
+                updated_time
+                and (datetime.now() - updated_time).total_seconds()
+                < SCHEDULER_LOCK_TTL_SECONDS
+            ):
                 if lock.get("owner") != SCHEDULER_INSTANCE_ID:
                     conn.rollback()
                     return False
@@ -3661,27 +4490,30 @@ def init_scheduler():
         def add_lock_heartbeat():
             scheduler.add_job(
                 func=refresh_scheduler_lock,
-                trigger='interval',
+                trigger="interval",
                 seconds=SCHEDULER_LOCK_HEARTBEAT_SECONDS,
-                id='scheduler_lock_heartbeat',
-                name='Scheduler Lock Heartbeat',
-                replace_existing=True
+                id="scheduler_lock_heartbeat",
+                name="Scheduler Lock Heartbeat",
+                replace_existing=True,
             )
 
         with app.app_context():
-            enable_scheduled = get_setting('enable_scheduled_refresh', 'true').lower() == 'true'
+            enable_scheduled = (
+                get_setting("enable_scheduled_refresh", "true").lower() == "true"
+            )
 
             if not enable_scheduled:
                 print("✓ 定时刷新已禁用")
                 return None
 
-            use_cron = get_setting('use_cron_schedule', 'false').lower() == 'true'
+            use_cron = get_setting("use_cron_schedule", "false").lower() == "true"
 
             if use_cron:
-                cron_expr = get_setting('refresh_cron', '0 2 * * *')
+                cron_expr = get_setting("refresh_cron", "0 2 * * *")
                 try:
                     from croniter import croniter
                     from datetime import datetime
+
                     croniter(cron_expr, datetime.now())
 
                     parts = cron_expr.split()
@@ -3692,14 +4524,14 @@ def init_scheduler():
                             hour=hour,
                             day=day,
                             month=month,
-                            day_of_week=day_of_week
+                            day_of_week=day_of_week,
                         )
                         scheduler.add_job(
                             func=scheduled_refresh_task,
                             trigger=trigger,
-                            id='token_refresh',
-                            name='Token 定时刷新',
-                            replace_existing=True
+                            id="token_refresh",
+                            name="Token 定时刷新",
+                            replace_existing=True,
                         )
                         add_lock_heartbeat()
                         scheduler.start()
@@ -3711,18 +4543,20 @@ def init_scheduler():
                 except Exception as e:
                     print(f"⚠ Cron 表达式解析失败: {str(e)}，回退到默认配置")
 
-            refresh_interval_days = int(get_setting('refresh_interval_days', '30'))
+            refresh_interval_days = int(get_setting("refresh_interval_days", "30"))
             scheduler.add_job(
                 func=scheduled_refresh_task,
                 trigger=CronTrigger(hour=2, minute=0),
-                id='token_refresh',
-                name='Token 定时刷新',
-                replace_existing=True
+                id="token_refresh",
+                name="Token 定时刷新",
+                replace_existing=True,
             )
 
             add_lock_heartbeat()
             scheduler.start()
-            print(f"✓ 定时任务已启动：每天凌晨 2:00 检查刷新（周期：{refresh_interval_days} 天）")
+            print(
+                f"✓ 定时任务已启动：每天凌晨 2:00 检查刷新（周期：{refresh_interval_days} 天）"
+            )
 
         atexit.register(lambda: scheduler.shutdown())
 
@@ -3742,13 +4576,15 @@ def scheduled_refresh_task():
 
     try:
         with app.app_context():
-            enable_scheduled = get_setting('enable_scheduled_refresh', 'true').lower() == 'true'
+            enable_scheduled = (
+                get_setting("enable_scheduled_refresh", "true").lower() == "true"
+            )
 
             if not enable_scheduled:
                 print(f"[定时任务] 定时刷新已禁用，跳过执行")
                 return
 
-            use_cron = get_setting('use_cron_schedule', 'false').lower() == 'true'
+            use_cron = get_setting("use_cron_schedule", "false").lower() == "true"
 
             if use_cron:
                 print(f"[定时任务] 使用 Cron 调度，直接执行刷新...")
@@ -3756,26 +4592,30 @@ def scheduled_refresh_task():
                 print(f"[定时任务] Token 刷新完成")
                 return
 
-            refresh_interval_days = int(get_setting('refresh_interval_days', '30'))
+            refresh_interval_days = int(get_setting("refresh_interval_days", "30"))
 
         conn = sqlite3.connect(DATABASE, timeout=10)
         configure_sqlite(conn)
         conn.row_factory = sqlite3.Row
-        cursor = conn.execute('''
+        cursor = conn.execute("""
             SELECT MAX(created_at) as last_refresh
             FROM account_refresh_logs
             WHERE refresh_type = 'scheduled'
-        ''')
+        """)
         row = cursor.fetchone()
         conn.close()
 
-        last_refresh = row['last_refresh'] if row and row['last_refresh'] else None
+        last_refresh = row["last_refresh"] if row and row["last_refresh"] else None
 
         if last_refresh:
             last_refresh_time = datetime.fromisoformat(last_refresh)
-            next_refresh_time = last_refresh_time + timedelta(days=refresh_interval_days)
+            next_refresh_time = last_refresh_time + timedelta(
+                days=refresh_interval_days
+            )
             if datetime.now() < next_refresh_time:
-                print(f"[定时任务] 距离上次刷新未满 {refresh_interval_days} 天，跳过本次刷新")
+                print(
+                    f"[定时任务] 距离上次刷新未满 {refresh_interval_days} 天，跳过本次刷新"
+                )
                 return
 
         print(f"[定时任务] 开始执行 Token 刷新...")
@@ -3794,12 +4634,16 @@ def trigger_refresh_internal():
 
     try:
         # 获取刷新间隔配置
-        cursor_settings = conn.execute("SELECT value FROM settings WHERE key = 'refresh_delay_seconds'")
+        cursor_settings = conn.execute(
+            "SELECT value FROM settings WHERE key = 'refresh_delay_seconds'"
+        )
         delay_row = cursor_settings.fetchone()
-        delay_seconds = int(delay_row['value']) if delay_row else 5
+        delay_seconds = int(delay_row["value"]) if delay_row else 5
 
         # 清理超过半年的刷新记录
-        conn.execute("DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')")
+        conn.execute(
+            "DELETE FROM account_refresh_logs WHERE created_at < datetime('now', '-6 months')"
+        )
         conn.commit()
 
         cursor = conn.execute(
@@ -3811,15 +4655,17 @@ def trigger_refresh_internal():
         for event in _refresh_accounts_generator(
             conn=conn,
             accounts=accounts,
-            refresh_type='scheduled',
+            refresh_type="scheduled",
             delay_seconds=delay_seconds,
-            resume=True
+            resume=True,
         ):
-            if event.get('type') == 'complete':
+            if event.get("type") == "complete":
                 summary = event
 
         if summary:
-            print(f"[定时任务] 刷新结果：总计 {summary.get('total')}，成功 {summary.get('success_count')}，失败 {summary.get('failed_count')}")
+            print(
+                f"[定时任务] 刷新结果：总计 {summary.get('total')}，成功 {summary.get('success_count')}，失败 {summary.get('failed_count')}"
+            )
 
     finally:
         conn.close()
@@ -3835,11 +4681,12 @@ else:
 
 # ==================== 错误处理 ====================
 
+
 @app.errorhandler(400)
 def bad_request(error):
     """处理400错误"""
     print(f"400 Bad Request: {error}")
-    return jsonify({'success': False, 'error': '请求格式错误'}), 400
+    return jsonify({"success": False, "error": "请求格式错误"}), 400
 
 
 @app.errorhandler(Exception)
@@ -3847,23 +4694,24 @@ def handle_exception(error):
     """处理未捕获的异常"""
     if isinstance(error, HTTPException):
         # 保持 HTTPException 原本状态码，避免 404 被包装成 500
-        if request.path.startswith('/api/'):
-            return jsonify({'success': False, 'error': error.description}), error.code
+        if request.path.startswith("/api/"):
+            return jsonify({"success": False, "error": error.description}), error.code
         return error
 
     print(f"Unhandled exception: {error}")
     import traceback
+
     traceback.print_exc()
-    return jsonify({'success': False, 'error': str(error)}), 500
+    return jsonify({"success": False, "error": str(error)}), 500
 
 
 # ==================== 主程序 ====================
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     # 从环境变量获取配置
-    port = int(os.getenv('PORT', 5000))
-    host = os.getenv('HOST', '0.0.0.0')
-    debug = os.getenv('FLASK_ENV', 'production') != 'production'
+    port = int(os.getenv("PORT", 5000))
+    host = os.getenv("HOST", "0.0.0.0")
+    debug = os.getenv("FLASK_ENV", "production") != "production"
 
     print("=" * 60)
     print("Outlook 邮件 Web 应用")
